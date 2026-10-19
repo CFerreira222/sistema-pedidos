@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Panel de pedidos</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><header><div class="brand">MESA<span> / SERVIDOR</span></div><a class="nav" href="/">← Nuevo pedido</a></header>
+<main class="wrap"><section class="hero"><p class="eyebrow">PANEL DE CONTROL</p><h1>Pedidos recibidos</h1><p class="muted">Se actualiza automáticamente cada 3 segundos.</p></section>
+<div class="toolbar"><h2>Pedidos recientes</h2><button class="secondary" id="refresh">Actualizar ahora</button></div><div id="orders" class="orders"></div>
+<section class="panel product-panel"><h2>Administrar productos</h2><p class="muted">Agregá productos o desactivá los que ya no ofrecés.</p>
+<form id="productForm" class="product-form"><label>Categoría<input id="category" required placeholder="Bebidas"></label><label>Producto<input id="productName" required placeholder="Limonada"></label><label>Precio ($)<input id="price" type="number" min="0" step="1" required placeholder="150"></label><button class="primary" type="submit">Agregar</button></form><div id="products" class="product-list"></div><p id="productMessage" role="status"></p></section>
+<footer>Pedidos · Panel del servidor</footer></main><script src="/static/admin.js"></script></body></html>
