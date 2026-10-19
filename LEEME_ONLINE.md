@@ -47,3 +47,12 @@ Render gratuito puede dormir el servicio tras inactividad y tardar en volver a a
 - No publiques `DATABASE_URL`, contraseña de Supabase ni `ADMIN_PASSWORD` en GitHub ni en mensajes.
 - El panel usa autenticación básica del navegador. Usá solo HTTPS (Render lo proporciona en el dominio `onrender.com`).
 - Si la conexión falla, revisá que la cadena completa sea correcta y usá el **Session pooler** indicado en Connect en Supabase.
+
+## Panel administrativo ampliado
+- Entrá a `https://TU-SERVICIO.onrender.com/admin` e iniciá sesión con `ADMIN_USER` y `ADMIN_PASSWORD`.
+- En **Productos** podés agregar, editar nombre, categoría y precio, o quitar un producto del catálogo.
+- En **Categorías** podés crear categorías, renombrarlas y eliminar las que no tengan productos activos.
+- En **Configuración del negocio** podés cambiar el nombre del negocio y el símbolo de moneda.
+- Las categorías y configuración se guardan en la base de datos. Esta versión corrige la selección de conexión para usar PostgreSQL cuando `DATABASE_URL` está definida.
+
+Antes de desplegar esta versión sobre una instalación que ya recibió pedidos, verificá en Supabase → Table Editor si existen las tablas `orders`, `order_items` y `products`. La versión anterior pudo haber estado guardando datos en SQLite local por un error en la función de conexión; los datos de SQLite no se transfieren automáticamente a Supabase. Conservá una copia de seguridad de cualquier dato que necesites antes de reemplazar el código.
