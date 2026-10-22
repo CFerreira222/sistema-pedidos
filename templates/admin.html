@@ -1,4 +1,4 @@
-
+```html
 <!doctype html>
 <html lang="es">
 <head>
@@ -6,7 +6,37 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Panel de pedidos</title>
   <link rel="stylesheet" href="/static/style.css">
+
+  <style>
+    .admin-tabs {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 20px 0;
+    }
+
+    .admin-tab {
+      padding: 12px 18px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background: #fff;
+      color: #333;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .admin-tab.active {
+      background: #202a24;
+      color: #fff;
+      border-color: #202a24;
+    }
+
+    .admin-section[hidden] {
+      display: none !important;
+    }
+  </style>
 </head>
+
 <body>
   <header>
     <div class="brand">MESA<span> / SERVIDOR</span></div>
@@ -16,68 +46,110 @@
   <main class="wrap">
     <section class="hero">
       <p class="eyebrow">PANEL DE CONTROL</p>
-      <h1>Pedidos recibidos</h1>
-      <p class="muted">Se actualiza automáticamente cada 3 segundos.</p>
+      <h1>Administración</h1>
+      <p class="muted">Gestioná tus pedidos y productos desde acá.</p>
     </section>
 
-    <div class="toolbar">
-      <h2>Pedidos recientes</h2>
-      <button class="secondary" id="refresh">Actualizar ahora</button>
-    </div>
+    <nav class="admin-tabs" aria-label="Secciones de administración">
+      <button class="admin-tab active" type="button"
+              data-tab="orders-section" aria-selected="true">
+        Pedidos
+      </button>
 
-    <div id="orders" class="orders"></div>
+      <button class="admin-tab" type="button"
+              data-tab="products-section" aria-selected="false">
+        Productos
+      </button>
 
-    
-<section class="panel">
-  <h2>Administrar categorías</h2>
+      <button class="admin-tab" type="button"
+              data-tab="categories-section" aria-selected="false">
+        Categorías
+      </button>
+    </nav>
 
-  <form id="category-form">
-    <label for="new-category">Nombre de la categoría</label>
-    <input
-      id="new-category"
-      type="text"
-      maxlength="60"
-      placeholder="Ej.: Distribuidora X"
-      required
-    >
-    <button class="primary" type="submit">Crear categoría</button>
-    <p id="category-message" role="status"></p>
-  </form>
+    <!-- PESTAÑA PEDIDOS -->
+    <section id="orders-section" class="admin-section">
+      <div class="toolbar">
+        <h2>Pedidos recientes</h2>
+        <button class="secondary" id="refresh" type="button">
+          Actualizar ahora
+        </button>
+      </div>
 
-  <h3>Categorías existentes</h3>
-  <div id="categories-list" class="product-list"></div>
-</section>
+      <p class="muted">Los pedidos se actualizan automáticamente cada 3 segundos.</p>
+      <div id="orders" class="orders"></div>
+    </section>
 
+    <!-- PESTAÑA PRODUCTOS -->
+    <section id="products-section" class="admin-section" hidden>
+      <section class="panel product-panel">
+        <h2>Administrar productos</h2>
+        <p class="muted">Agregá productos o desactivá los que ya no ofrecés.</p>
 
-    <section class="panel product-panel">
-      <h2>Administrar productos</h2>
-      <p class="muted">Agregá productos o desactivá los que ya no ofrecés.</p>
+        <form id="productForm" class="product-form">
+          <label for="category">Categoría
+            <select id="category" required>
+              <option value="">Elegí una categoría</option>
+            </select>
+          </label>
 
-      <form id="productForm" class="product-form">
-        <label for="category">Categoría
-          <select id="category" required>
-            <option value="">Elegí una categoría</option>
-          </select>
-        </label>
+          <label for="productName">Producto
+            <input id="productName" required placeholder="Limonada">
+          </label>
 
-        <label for="productName">Producto
-          <input id="productName" required placeholder="Limonada">
-        </label>
+          <label for="price">Precio ($)
+            <input id="price" type="number" min="0" step="1"
+                   required placeholder="150">
+          </label>
 
-        <label for="price">Precio ($)
-          <input id="price" type="number" min="0" step="1" required placeholder="150">
-        </label>
+          <button class="primary" type="submit">Agregar</button>
+        </form>
 
-        <button class="primary" type="submit">Agregar</button>
-      </form>
+        <div id="products" class="product-list"></div>
+        <p id="productMessage" role="status"></p>
+      </section>
+    </section>
 
-      <div id="products" class="product-list"></div>
-      <p id="productMessage" role="status"></p>
+    <!-- PESTAÑA CATEGORÍAS -->
+    <section id="categories-section" class="admin-section" hidden>
+      <section class="panel">
+        <h2>Administrar categorías</h2>
+
+        <form id="category-form">
+          <label for="new-category">Nombre de la categoría</label>
+          <input id="new-category" type="text" maxlength="60"
+                 placeholder="Ej.: Bebidas" required>
+          <button class="primary" type="submit">Crear categoría</button>
+          <p id="category-message" role="status"></p>
+        </form>
+
+        <h3>Categorías existentes</h3>
+        <div id="categories-list" class="product-list"></div>
+      </section>
     </section>
 
     <footer>Pedidos · Panel del servidor</footer>
   </main>
 
+  <script>
+    document.querySelectorAll(".admin-tab").forEach(function (button) {
+      button.addEventListener("click", function () {
+        const selectedId = button.dataset.tab;
+
+        document.querySelectorAll(".admin-tab").forEach(function (tab) {
+          const active = tab === button;
+          tab.classList.toggle("active", active);
+          tab.setAttribute("aria-selected", active ? "true" : "false");
+        });
+
+        document.querySelectorAll(".admin-section").forEach(function (section) {
+          section.hidden = section.id !== selectedId;
+        });
+      });
+    });
+  </script>
+
   <script src="/static/admin.js"></script>
 </body>
 </html>
+```
