@@ -11,7 +11,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
-
 PORT = int(os.environ.get("PORT", "5000"))
 
 
@@ -35,15 +34,13 @@ class PgConnection:
         self.conn = conn
 
     def execute(self, sql, params=()):
-        sql = sql.replace("?", "%s")
         cur = self.conn.cursor()
-        cur.execute(sql, params)
+        cur.execute(sql.replace("?", "%s"), params)
         return PgCursor(cur)
 
     def executemany(self, sql, seq):
-        sql = sql.replace("?", "%s")
         cur = self.conn.cursor()
-        cur.executemany(sql, seq)
+        cur.executemany(sql.replace("?", "%s"), seq)
         return PgCursor(cur)
 
     def __enter__(self):
@@ -77,7 +74,6 @@ def db():
     return conn
 
 
-# Proteger el panel y las operaciones administrativas.
 @app.before_request
 def protect_admin():
     path, method = request.path, request.method
@@ -91,7 +87,7 @@ def protect_admin():
             path.startswith("/api/products/")
             and method in ("PATCH", "PUT", "DELETE")
         )
-                or (
+        or (
             path == "/api/categories"
             and method in ("GET", "POST")
         )
@@ -99,6 +95,7 @@ def protect_admin():
             path.startswith("/api/categories/")
             and method == "DELETE"
         )
+    )
 
     if not protected:
         return None
@@ -118,12 +115,8 @@ def protect_admin():
 
     if (
         not auth
-        or not hmac.compare_digest(
-            auth.username or "", expected_user
-        )
-        or not hmac.compare_digest(
-            auth.password or "", expected_password
-        )
+        or not hmac.compare_digest(auth.username or "", expected_user)
+        or not hmac.compare_digest(auth.password or "", expected_password)
     ):
         return Response(
             "Se requiere iniciar sesión",
@@ -158,7 +151,6 @@ def init_db():
                     active INTEGER NOT NULL DEFAULT 1
                 )
             """)
-
             c.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
                     id BIGSERIAL PRIMARY KEY,
@@ -168,7 +160,6 @@ def init_db():
                     created_at TEXT NOT NULL
                 )
             """)
-
             c.execute("""
                 CREATE TABLE IF NOT EXISTS order_items (
                     id BIGSERIAL PRIMARY KEY,
@@ -181,14 +172,12 @@ def init_db():
                         REFERENCES orders(id) ON DELETE CASCADE
                 )
             """)
-
             c.execute("""
                 CREATE TABLE IF NOT EXISTS categories (
                     id BIGSERIAL PRIMARY KEY,
                     name TEXT NOT NULL UNIQUE
                 )
             """)
-
         else:
             c.execute("""
                 CREATE TABLE IF NOT EXISTS products (
@@ -199,7 +188,6 @@ def init_db():
                     active INTEGER NOT NULL DEFAULT 1
                 )
             """)
-
             c.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,7 +197,6 @@ def init_db():
                     created_at TEXT NOT NULL
                 )
             """)
-
             c.execute("""
                 CREATE TABLE IF NOT EXISTS order_items (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -222,7 +209,6 @@ def init_db():
                         REFERENCES orders(id) ON DELETE CASCADE
                 )
             """)
-
             c.execute("""
                 CREATE TABLE IF NOT EXISTS categories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,7 +216,6 @@ def init_db():
                 )
             """)
 
-        # Crear productos de ejemplo solamente si no hay ninguno.
         count = c.execute(
             "SELECT COUNT(*) AS n FROM products"
         ).fetchone()["n"]
@@ -241,8 +226,7 @@ def init_db():
                 DEFAULT_PRODUCTS
             )
 
-        # Registrar como proveedores los nombres que ya aparecen
-        # en los productos existentes, sin borrar ni modificar productos.
+        # Importar categorías de los productos que ya existen.
         c.execute("""
             INSERT INTO categories(name)
             SELECT DISTINCT TRIM(category)
@@ -266,27 +250,24 @@ def admin():
     return render_template("admin.html")
 
 
-# Listar proveedores.
+# Listar categorías/proveedores.
 @app.get("/api/categories")
 def get_categories():
     with db() as c:
         rows = c.execute(
             "SELECT id, name FROM categories ORDER BY name"
         ).fetchall()
-
     return jsonify([dict(r) for r in rows])
 
 
-# Crear proveedor.
+# Crear categoría/proveedor.
 @app.post("/api/categories")
 def add_category():
     data = request.get_json(silent=True) or {}
     name = str(data.get("name", "")).strip()[:60]
 
     if not name:
-        return jsonify(
-            error="Ingresá el nombre del proveedor."
-        ), 400
+        return jsonify(error="Ingresá el nombre del proveedor."), 400
 
     try:
         with db() as c:
@@ -296,19 +277,14 @@ def add_category():
             )
             category_id = cur.fetchone()["id"]
 
-        return jsonify(
-            ok=True,
-            id=category_id,
-            name=name
-        )
-
+        return jsonify(ok=True, id=category_id, name=name)
     except Exception:
         return jsonify(
             error="Ese proveedor ya existe o no se pudo guardar."
         ), 409
 
 
-# Eliminar proveedor solo si no tiene productos asociados.
+# Eliminar categoría solo si no tiene productos asociados.
 @app.delete("/api/categories/<int:category_id>")
 def delete_category(category_id):
     with db() as c:
@@ -320,16 +296,16 @@ def delete_category(category_id):
         if not category:
             return jsonify(error="Categoría no encontrada."), 404
 
-        products_count = c.execute(
+        count = c.execute(
             "SELECT COUNT(*) AS n FROM products WHERE category = ?",
             (category["name"],)
         ).fetchone()["n"]
 
-        if products_count > 0:
+        if count > 0:
             return jsonify(
                 error=(
-                    "No se puede eliminar esta categoría porque tiene "
-                    "productos asociados. Quitá esos productos primero."
+                    "No se puede eliminar porque tiene productos asociados. "
+                    "Quitá o reasigná esos productos primero."
                 )
             ), 409
 
@@ -339,6 +315,7 @@ def delete_category(category_id):
         )
 
     return jsonify(ok=True, message="Categoría eliminada con éxito.")
+
 
 # Listar productos activos.
 @app.get("/api/products")
@@ -350,7 +327,6 @@ def products():
             WHERE active = 1
             ORDER BY category, name
         """).fetchall()
-
     return jsonify([dict(r) for r in rows])
 
 
@@ -389,10 +365,7 @@ def create_order():
 
             if p:
                 valid.append((
-                    p["id"],
-                    p["name"],
-                    money(p["price"]),
-                    qty
+                    p["id"], p["name"], money(p["price"]), qty
                 ))
 
         if not valid:
@@ -400,9 +373,7 @@ def create_order():
                 error="No hay productos válidos en el pedido."
             ), 400
 
-        now = datetime.now().astimezone().strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
         cur = c.execute("""
             INSERT INTO orders(customer, notes, status, created_at)
@@ -427,8 +398,7 @@ def create_order():
 def get_orders():
     with db() as c:
         orders = c.execute("""
-            SELECT *
-            FROM orders
+            SELECT * FROM orders
             ORDER BY id DESC
             LIMIT 200
         """).fetchall()
@@ -443,9 +413,7 @@ def get_orders():
                 ORDER BY id
             """, (o["id"],)).fetchall()
 
-            total = sum(
-                i["price"] * i["quantity"] for i in items
-            )
+            total = sum(i["price"] * i["quantity"] for i in items)
 
             result.append({
                 **dict(o),
@@ -456,18 +424,14 @@ def get_orders():
     return jsonify(result)
 
 
-# Cambiar estado de un pedido.
+# Cambiar estado del pedido.
 @app.patch("/api/orders/<int:oid>")
 def update_order(oid):
     data = request.get_json(silent=True) or {}
     status = data.get("status")
 
     allowed = [
-        "Recibido",
-        "En preparación",
-        "Listo",
-        "Entregado",
-        "Cancelado"
+        "Recibido", "En preparación", "Listo", "Entregado", "Cancelado"
     ]
 
     if status not in allowed:
@@ -485,11 +449,10 @@ def update_order(oid):
     return jsonify(ok=True)
 
 
-# Crear producto asociado a un proveedor.
+# Crear producto asociado a una categoría/proveedor existente.
 @app.post("/api/products")
 def add_product():
     data = request.get_json(silent=True) or {}
-
     category = str(data.get("category", "")).strip()[:60]
     name = str(data.get("name", "")).strip()[:100]
 
@@ -504,16 +467,13 @@ def add_product():
         ), 400
 
     with db() as c:
-        # Exigir que el proveedor ya exista.
         provider = c.execute(
             "SELECT id FROM categories WHERE name = ?",
             (category,)
         ).fetchone()
 
         if not provider:
-            return jsonify(
-                error="Elegí un proveedor existente."
-            ), 400
+            return jsonify(error="Elegí un proveedor existente."), 400
 
         cur = c.execute("""
             INSERT INTO products(category, name, price)
@@ -531,7 +491,7 @@ def add_product():
 def delete_product(pid):
     with db() as c:
         cur = c.execute(
-            "UPDATE products SET active = 0 WHERE id = ?",
+            "UPDATE products SET active = 0 WHERE id = ? AND active = 1",
             (pid,)
         )
 
@@ -556,5 +516,3 @@ if __name__ == "__main__":
         debug=False,
         threaded=True
     )
-    # Accessible to phones/tablets on the same Wi-Fi network.
-    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
