@@ -91,11 +91,14 @@ def protect_admin():
             path.startswith("/api/products/")
             and method in ("PATCH", "PUT", "DELETE")
         )
-        or (
+                or (
             path == "/api/categories"
             and method in ("GET", "POST")
         )
-    )
+        or (
+            path.startswith("/api/categories/")
+            and method == "DELETE"
+        )
 
     if not protected:
         return None
