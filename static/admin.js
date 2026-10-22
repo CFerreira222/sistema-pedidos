@@ -27,6 +27,33 @@ function getCategoryName(c) {
   return typeof c === 'string' ? c : c.name;
 }
 
+async function readResponse(r) {
+  try {
+    return await r.json();
+  } catch {
+    return {};
+  }
+}
+
+// Mantener seleccionada la pestaña actual.
+// Compatible con pestañas que usan data-tab y data-panel.
+function showCategoriesTab() {
+  const tab = document.querySelector('[data-tab="categories"]');
+  const panel = document.querySelector('[data-panel="categories"]');
+
+  if (tab && panel) {
+    document.querySelectorAll('[data-tab]').forEach(el => {
+      el.classList.toggle('active', el === tab);
+      el.setAttribute('aria-selected', String(el === tab));
+    });
+
+    document.querySelectorAll('[data-panel]').forEach(el => {
+      el.hidden = el !== panel;
+      el.classList.toggle('active', el === panel);
+    });
+  }
+}
+
 // -------------------- PEDIDOS --------------------
 
 async function loadOrders() {
@@ -124,7 +151,21 @@ async function loadOrders() {
 
 async function fetchCategories() {
   const r = await fetch('/api/categories', { cache: 'no-store' });
-  if (!r.ok) throw new Error('No se pudieron cargar las categorías.');
+
+  if (!r.ok) {
+    throw new Error('No se pudieron cargar las categorías.');
+  }
+
+  return await r.json();
+}
+
+async function fetchProducts() {
+  const r = await fetch('/api/products', { cache: 'no-store' });
+
+  if (!r.ok) {
+    throw new Error('No se pudieron cargar los productos.');
+  }
+
   return await r.json();
 }
 
@@ -156,13 +197,11 @@ async function loadCategories(selectedName = '') {
 async function renderCategories(categories) {
   if (!categoriesList) return;
 
-  let products = [];
+  let products;
 
   try {
-    const r = await fetch('/api/products', { cache: 'no-store' });
-    if (!r.ok) throw new Error();
-    products = await r.json();
-  } catch {
+    products = await fetchProducts();
+  } catch (err) {
     categoriesList.innerHTML =
       '<div class="empty">No se pudieron cargar los productos.</div>';
     return;
@@ -184,16 +223,15 @@ async function renderCategories(categories) {
       const name = getCategoryName(category);
       const id = typeof category === 'object' ? category.id : null;
 
+      const matchingProducts = products.filter(
+        p => (p.category || 'Sin categoría') === name
+      );
+
       const group = document.createElement('details');
       group.className = 'category-group';
 
       const summary = document.createElement('summary');
       summary.className = 'category-summary';
-
-      const matchingProducts = products.filter(
-        p => (p.category || 'Sin categoría') === name
-      );
-
       summary.textContent =
         `${name} (${matchingProducts.length} productos)`;
 
@@ -203,8 +241,10 @@ async function renderCategories(categories) {
       content.className = 'category-products';
 
       if (!matchingProducts.length) {
-        content.innerHTML =
-          '<p class="muted">Esta categoría todavía no tiene productos.</p>';
+        const empty = document.createElement('p');
+        empty.className = 'muted';
+        empty.textContent = 'Esta categoría todavía no tiene productos.';
+        content.append(empty);
       } else {
         matchingProducts.forEach(p => {
           const row = document.createElement('div');
@@ -219,6 +259,7 @@ async function renderCategories(categories) {
         });
       }
 
+      // Solo mostrar eliminación si la API devuelve un ID.
       if (id !== null && id !== undefined) {
         const remove = document.createElement('button');
         remove.className = 'remove';
@@ -241,17 +282,17 @@ async function renderCategories(categories) {
               method: 'DELETE'
             });
 
+            const data = await readResponse(response);
+
             if (!response.ok) {
-              let data = {};
-              try {
-                data = await response.json();
-              } catch {}
               throw new Error(
-                data.error || 'No se pudo eliminar la categoría.'
+                data.error || data.message ||
+                'No se pudo eliminar la categoría.'
               );
             }
 
             await loadCategories();
+
             categoryMsg.textContent = 'Categoría eliminada.';
             categoryMsg.className = 'success';
           } catch (err) {
@@ -271,16 +312,11 @@ async function renderCategories(categories) {
 
 async function loadProducts() {
   try {
-    const [productsResponse, categories] = await Promise.all([
-      fetch('/api/products', { cache: 'no-store' }),
+    const [products, categories] = await Promise.all([
+      fetchProducts(),
       fetchCategories()
     ]);
 
-    if (!productsResponse.ok) {
-      throw new Error('No se pudieron cargar los productos.');
-    }
-
-    const products = await productsResponse.json();
     productsEl.innerHTML = '';
 
     const groups = {};
@@ -300,27 +336,9 @@ async function loadProducts() {
       a.localeCompare(b, 'es')
     );
 
-    if (!names.length || !products.length) {
-      if (!names.length) {
-        productsEl.innerHTML =
-          '<div class="empty">Primero creá una categoría.</div>';
-      } else {
-        names.forEach(name => {
-          const details = document.createElement('details');
-          details.className = 'product-group';
-
-          const summary = document.createElement('summary');
-          summary.className = 'category-summary';
-          summary.textContent = `${name} (0 productos)`;
-
-          const empty = document.createElement('p');
-          empty.className = 'muted';
-          empty.textContent = 'Todavía no hay productos en esta categoría.';
-
-          details.append(summary, empty);
-          productsEl.append(details);
-        });
-      }
+    if (!names.length) {
+      productsEl.innerHTML =
+        '<div class="empty">Primero creá una categoría.</div>';
       return;
     }
 
@@ -334,6 +352,13 @@ async function loadProducts() {
         `${category} (${groups[category].length} productos)`;
 
       details.append(heading);
+
+      if (!groups[category].length) {
+        const empty = document.createElement('p');
+        empty.className = 'muted';
+        empty.textContent = 'Todavía no hay productos en esta categoría.';
+        details.append(empty);
+      }
 
       groups[category].forEach(p => {
         const row = document.createElement('div');
@@ -356,12 +381,16 @@ async function loadProducts() {
               method: 'DELETE'
             });
 
-            if (!response.ok) throw new Error();
+            const data = await readResponse(response);
+
+            if (!response.ok) {
+              throw new Error(data.error || 'No se pudo quitar el producto.');
+            }
 
             await loadProducts();
             await loadCategories();
-          } catch {
-            alert('No se pudo quitar el producto.');
+          } catch (err) {
+            alert(err.message || 'No se pudo quitar el producto.');
           }
         };
 
@@ -379,89 +408,128 @@ async function loadProducts() {
 
 // -------------------- CREAR CATEGORÍA --------------------
 
-categoryForm.addEventListener('submit', async e => {
-  e.preventDefault();
+if (categoryForm) {
+  categoryForm.addEventListener('submit', async e => {
+    // Evita que el navegador recargue la página.
+    e.preventDefault();
+    e.stopPropagation();
 
-  const name = categoryInput.value.trim();
-  if (!name) return;
+    const name = categoryInput.value.trim();
 
-  categoryMsg.textContent = 'Creando categoría…';
-  categoryMsg.className = '';
-
-  try {
-    const r = await fetch('/api/categories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
-    });
-
-    const data = await r.json();
-
-    if (!r.ok) {
-      throw new Error(data.error || 'No se pudo crear la categoría.');
+    if (!name) {
+      categoryMsg.textContent = 'Ingresá un nombre para la categoría.';
+      categoryMsg.className = 'error';
+      return;
     }
 
-    categoryInput.value = '';
-    await loadCategories(name);
+    const submitButton = categoryForm.querySelector(
+      'button[type="submit"], input[type="submit"]'
+    );
 
-    categoryMsg.textContent = '¡Categoría creada con éxito!';
-    categoryMsg.className = 'success';
-  } catch (err) {
-    categoryMsg.textContent =
-      err.message || 'Error al crear la categoría.';
-    categoryMsg.className = 'error';
-  }
-});
+    if (submitButton) submitButton.disabled = true;
+
+    categoryMsg.textContent = 'Creando categoría…';
+    categoryMsg.className = '';
+
+    try {
+      const r = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+
+      const data = await readResponse(r);
+
+      if (!r.ok) {
+        throw new Error(
+          data.error || data.message ||
+          `No se pudo crear la categoría (HTTP ${r.status}).`
+        );
+      }
+
+      categoryInput.value = '';
+
+      // Actualiza el listado y el selector sin recargar la página.
+      await loadCategories(name);
+      await loadProducts();
+
+      categoryMsg.textContent = '¡Categoría creada con éxito!';
+      categoryMsg.className = 'success';
+
+      // Si la interfaz usa pestañas, permanecer en Categorías.
+      showCategoriesTab();
+    } catch (err) {
+      categoryMsg.textContent =
+        err.message || 'Error al crear la categoría.';
+      categoryMsg.className = 'error';
+      console.error('Error al crear categoría:', err);
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
+  });
+} else {
+  console.error('No se encontró el formulario #category-form en admin.html.');
+}
 
 // -------------------- AGREGAR PRODUCTO --------------------
 
-document.querySelector('#productForm').addEventListener('submit', async e => {
-  e.preventDefault();
+const productForm = document.querySelector('#productForm');
 
-  productMsg.textContent = 'Guardando…';
-  productMsg.className = '';
+if (productForm) {
+  productForm.addEventListener('submit', async e => {
+    e.preventDefault();
 
-  const body = {
-    category: categorySelect.value,
-    name: document.querySelector('#productName').value.trim(),
-    price: document.querySelector('#price').value
-  };
+    productMsg.textContent = 'Guardando…';
+    productMsg.className = '';
 
-  try {
-    const r = await fetch('/api/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const body = {
+      category: categorySelect.value,
+      name: document.querySelector('#productName').value.trim(),
+      price: document.querySelector('#price').value
+    };
 
-    const data = await r.json();
+    try {
+      const r = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
 
-    if (!r.ok) {
-      throw new Error(data.error || 'Error al guardar.');
+      const data = await readResponse(r);
+
+      if (!r.ok) {
+        throw new Error(data.error || data.message || 'Error al guardar.');
+      }
+
+      productForm.reset();
+
+      productMsg.textContent = 'Producto agregado con éxito.';
+      productMsg.className = 'success';
+
+      await loadProducts();
+      await loadCategories(body.category);
+    } catch (err) {
+      productMsg.textContent = err.message || 'Error al guardar.';
+      productMsg.className = 'error';
     }
-
-    e.target.reset();
-
-    productMsg.textContent = 'Producto agregado con éxito.';
-    productMsg.className = 'success';
-
-    await loadProducts();
-    await loadCategories(body.category);
-  } catch (err) {
-    productMsg.textContent = err.message || 'Error al guardar.';
-    productMsg.className = 'error';
-  }
-});
+  });
+}
 
 // -------------------- ACTUALIZAR --------------------
 
-document.querySelector('#refresh').onclick = async () => {
-  await Promise.all([
-    loadOrders(),
-    loadProducts(),
-    loadCategories()
-  ]);
-};
+const refreshButton = document.querySelector('#refresh');
+
+if (refreshButton) {
+  refreshButton.onclick = async () => {
+    await Promise.all([
+      loadOrders(),
+      loadProducts(),
+      loadCategories()
+    ]);
+  };
+}
+
+// -------------------- INICIO --------------------
 
 loadOrders();
 loadProducts();
