@@ -308,6 +308,38 @@ def add_category():
         ), 409
 
 
+# Eliminar proveedor solo si no tiene productos asociados.
+@app.delete("/api/categories/<int:category_id>")
+def delete_category(category_id):
+    with db() as c:
+        category = c.execute(
+            "SELECT id, name FROM categories WHERE id = ?",
+            (category_id,)
+        ).fetchone()
+
+        if not category:
+            return jsonify(error="Categoría no encontrada."), 404
+
+        products_count = c.execute(
+            "SELECT COUNT(*) AS n FROM products WHERE category = ?",
+            (category["name"],)
+        ).fetchone()["n"]
+
+        if products_count > 0:
+            return jsonify(
+                error=(
+                    "No se puede eliminar esta categoría porque tiene "
+                    "productos asociados. Quitá esos productos primero."
+                )
+            ), 409
+
+        c.execute(
+            "DELETE FROM categories WHERE id = ?",
+            (category_id,)
+        )
+
+    return jsonify(ok=True, message="Categoría eliminada con éxito.")
+
 # Listar productos activos.
 @app.get("/api/products")
 def products():
