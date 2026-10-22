@@ -59,6 +59,8 @@ def protect_admin():
         or (path.startswith("/api/orders/") and method == "PATCH")
         or (path == "/api/products" and method == "POST")
         or (path.startswith("/api/products/") and method in ("PATCH", "PUT", "DELETE"))
+        or (path == "/api/categories" and method in ("GET", "POST"))
+                or (path == "/api/categories" and method in ("GET", "POST"))
     )
     if not protected:
         return None
@@ -92,6 +94,17 @@ def init_db():
                 id BIGSERIAL PRIMARY KEY, order_id BIGINT NOT NULL,
                 product_id BIGINT, name TEXT NOT NULL, price DOUBLE PRECISION NOT NULL,
                 quantity INTEGER NOT NULL, FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE)""")
+ c.execute("""
+            CREATE TABLE IF NOT EXISTS categories (
+                id BIGSERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE
+            )
+        """) if DATABASE_URL else c.execute("""
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE
+            )
+        """)
         else:
             c.execute("""CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL,
@@ -118,7 +131,37 @@ def index():
 @app.route("/admin")
 def admin():
     return render_template("admin.html")
+@app.get("/api/categories")
+def get_categories():
+    with db() as c:
+        rows = c.execute(
+            "SELECT id, name FROM categories ORDER BY name"
+        ).fetchall()
+    return jsonify([dict(r) for r in rows])
 
+
+@app.post("/api/categories")
+def add_category():
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name", "")).strip()[:60]
+
+    if not name:
+        return jsonify(error="Ingresá el nombre del proveedor."), 400
+
+    try:
+        with db() as c:
+            cur = c.execute(
+                "INSERT INTO categories(name) VALUES(?) RETURNING id",
+                (name,)
+            )
+            category_id = cur.fetchone()["id"]
+
+        return jsonify(ok=True, id=category_id, name=name)
+
+    except Exception:
+        return jsonify(
+            error="Ese proveedor ya existe o no se pudo guardar."
+        ), 409
 @app.get("/api/products")
 def products():
     with db() as c:
