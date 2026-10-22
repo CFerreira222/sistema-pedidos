@@ -42,6 +42,23 @@ function showCategoriesTab() {
   const tab = document.querySelector(
     '.admin-tab[data-tab="categories-section"]'
   );
+  const panel = document.getElementById("categories-section");
+
+  if (!tab || !panel) {
+    console.error("No se encontró la pestaña Categorías.");
+    return;
+  }
+
+  document.querySelectorAll(".admin-tab").forEach(button => {
+    const active = button === tab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+
+  document.querySelectorAll(".admin-section").forEach(section => {
+    section.hidden = section !== panel;
+  });
+}
   const panel = document.getElementById('categories-section');
 
   if (tab && panel) {
