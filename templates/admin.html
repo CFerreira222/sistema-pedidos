@@ -27,21 +27,27 @@
 
     <div id="orders" class="orders"></div>
 
-    <section class="panel">
-      <h2>Administrar categorías</h2>
-      <form id="category-form">
-        <label for="new-category">Nueva categoría</label>
-        <input
-          id="new-category"
-          type="text"
-          maxlength="60"
-          placeholder="Ej.: Cócteles"
-          required
-        >
-        <button class="primary" type="submit">Crear categoría</button>
-        <p id="category-message" role="status"></p>
-      </form>
-    </section>
+    
+<section class="panel">
+  <h2>Administrar categorías</h2>
+
+  <form id="category-form">
+    <label for="new-category">Nombre de la categoría</label>
+    <input
+      id="new-category"
+      type="text"
+      maxlength="60"
+      placeholder="Ej.: Distribuidora X"
+      required
+    >
+    <button class="primary" type="submit">Crear categoría</button>
+    <p id="category-message" role="status"></p>
+  </form>
+
+  <h3>Categorías existentes</h3>
+  <div id="categories-list" class="product-list"></div>
+</section>
+
 
     <section class="panel product-panel">
       <h2>Administrar productos</h2>
