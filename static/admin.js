@@ -37,15 +37,26 @@ async function readResponse(r) {
 
 // Mantener seleccionada la pestaña actual.
 // Compatible con pestañas que usan data-tab y data-panel.
+function ```javascript
 function showCategoriesTab() {
-  const tab = document.querySelector('[data-tab="categories"]');
-  const panel = document.querySelector('[data-panel="categories"]');
+  const tab = document.querySelector(
+    '.admin-tab[data-tab="categories-section"]'
+  );
+  const panel = document.getElementById('categories-section');
 
   if (tab && panel) {
-    document.querySelectorAll('[data-tab]').forEach(el => {
-      el.classList.toggle('active', el === tab);
-      el.setAttribute('aria-selected', String(el === tab));
+    document.querySelectorAll('.admin-tab').forEach(el => {
+      const active = el === tab;
+      el.classList.toggle('active', active);
+      el.setAttribute('aria-selected', String(active));
     });
+
+    document.querySelectorAll('.admin-section').forEach(el => {
+      el.hidden = el !== panel;
+    });
+  }
+}
+```
 
     document.querySelectorAll('[data-panel]').forEach(el => {
       el.hidden = el !== panel;
