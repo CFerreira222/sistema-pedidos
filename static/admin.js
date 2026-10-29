@@ -37,50 +37,29 @@ async function readResponse(r) {
 
 // Mantener seleccionada la pestaña actual.
 // Compatible con pestañas que usan data-tab y data-panel.
-function ```javascript
+
 function showCategoriesTab() {
   const tab = document.querySelector(
     '.admin-tab[data-tab="categories-section"]'
   );
-  const panel = document.getElementById("categories-section");
+  const panel = document.getElementById('categories-section');
 
   if (!tab || !panel) {
-    console.error("No se encontró la pestaña Categorías.");
+    console.error('No se encontró la pestaña o el panel de Categorías.');
     return;
   }
 
-  document.querySelectorAll(".admin-tab").forEach(button => {
+  document.querySelectorAll('.admin-tab').forEach(button => {
     const active = button === tab;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
   });
 
-  document.querySelectorAll(".admin-section").forEach(section => {
+  document.querySelectorAll('.admin-section').forEach(section => {
     section.hidden = section !== panel;
   });
 }
-  const panel = document.getElementById('categories-section');
 
-  if (tab && panel) {
-    document.querySelectorAll('.admin-tab').forEach(el => {
-      const active = el === tab;
-      el.classList.toggle('active', active);
-      el.setAttribute('aria-selected', String(active));
-    });
-
-    document.querySelectorAll('.admin-section').forEach(el => {
-      el.hidden = el !== panel;
-    });
-  }
-}
-```
-
-    document.querySelectorAll('[data-panel]').forEach(el => {
-      el.hidden = el !== panel;
-      el.classList.toggle('active', el === panel);
-    });
-  }
-}
 
 // -------------------- PEDIDOS --------------------
 
