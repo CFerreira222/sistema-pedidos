@@ -1,6 +1,5 @@
 
 const catalog = document.querySelector('#catalog');
-const totalEl = document.querySelector('#total');
 const msg = document.querySelector('#message');
 
 let products = [];
@@ -65,9 +64,7 @@ function render() {
       name.className = 'product-name';
       name.textContent = product.name;
 
-      const price = document.createElement('div');
-      price.className = 'price';
-      price.textContent = fmt(product.price);
+          info.appendChild(name);
 
       info.append(name, price);
 
@@ -102,13 +99,7 @@ function render() {
     catalog.appendChild(section);
   });
 
-  const sum = products.reduce(
-    (total, product) =>
-      total + Number(product.price) * (quantities[product.id] || 0),
-    0
-  );
-
-  totalEl.textContent = fmt(sum);
+  
 }
 
 function setQty(id, quantity) {
