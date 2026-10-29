@@ -1,4 +1,4 @@
-```javascript
+
 const ordersEl = document.querySelector('#orders');
 const productsEl = document.querySelector('#products');
 const productMsg = document.querySelector('#productMessage');
@@ -7,14 +7,15 @@ const categoryForm = document.querySelector('#category-form');
 const categoryInput = document.querySelector('#new-category');
 const categoryMsg = document.querySelector('#category-message');
 const categoriesList = document.querySelector('#categories-list');
+const productForm = document.querySelector('#productForm');
 
 const fmt = n =>
-  '$ ' + Number(n).toLocaleString('es-UY', {
+  '$ ' + Number(n || 0).toLocaleString('es-UY', {
     maximumFractionDigits: 0
   });
 
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
@@ -23,20 +24,40 @@ function escapeHtml(s) {
   }[c]));
 }
 
-function getCategoryName(c) {
-  return typeof c === 'string' ? c : c.name;
+function getCategoryName(category) {
+  return typeof category === 'string'
+    ? category
+    : (category?.name || '');
 }
 
-async function readResponse(r) {
+async function readResponse(response) {
   try {
-    return await r.json();
+    return await response.json();
   } catch {
     return {};
   }
 }
 
-// Mantener seleccionada la pestaña actual.
-// Compatible con pestañas que usan data-tab y data-panel.
+async function apiFetch(url, options = {}) {
+  const response = await fetch(url, {
+    cache: 'no-store',
+    ...options
+  });
+
+  const data = await readResponse(response);
+
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+      data.message ||
+      `Error HTTP ${response.status}`
+    );
+  }
+
+  return data;
+}
+
+// -------------------- PESTAÑAS --------------------
 
 function showCategoriesTab() {
   const tab = document.querySelector(
@@ -44,10 +65,7 @@ function showCategoriesTab() {
   );
   const panel = document.getElementById('categories-section');
 
-  if (!tab || !panel) {
-    console.error('No se encontró la pestaña o el panel de Categorías.');
-    return;
-  }
+  if (!tab || !panel) return;
 
   document.querySelectorAll('.admin-tab').forEach(button => {
     const active = button === tab;
@@ -56,21 +74,19 @@ function showCategoriesTab() {
   });
 
   document.querySelectorAll('.admin-section').forEach(section => {
-    section.hidden = section !== panel;
+    section.hidden = section === panel ? false : true;
   });
 }
-
 
 // -------------------- PEDIDOS --------------------
 
 async function loadOrders() {
+  if (!ordersEl) return;
+
   try {
-    const r = await fetch('/api/orders', { cache: 'no-store' });
-    if (!r.ok) throw new Error();
+    const orders = await apiFetch('/api/orders');
 
-    const orders = await r.json();
-
-    if (!orders.length) {
+    if (!Array.isArray(orders) || orders.length === 0) {
       ordersEl.innerHTML =
         '<div class="empty">Todavía no hay pedidos.</div>';
       return;
@@ -78,7 +94,7 @@ async function loadOrders() {
 
     ordersEl.innerHTML = '';
 
-    orders.forEach(o => {
+    orders.forEach(order => {
       const card = document.createElement('article');
       card.className = 'order-card';
 
@@ -86,118 +102,161 @@ async function loadOrders() {
       top.className = 'order-top';
 
       const meta = document.createElement('div');
-      meta.innerHTML =
-        `<div class="order-id">Pedido #${o.id} · ${escapeHtml(o.customer)}</div>
-         <div class="order-time">${escapeHtml(o.created_at)}</div>`;
+      meta.innerHTML = `
+        <div class="order-id">
+          Pedido #${escapeHtml(order.id)} ·
+          ${escapeHtml(order.customer)}
+        </div>
+        <div class="order-time">
+          ${escapeHtml(order.created_at)}
+        </div>
+      `;
 
-      const select = document.createElement('select');
-      select.className = 'status';
+      const statusSelect = document.createElement('select');
+      statusSelect.className = 'status';
 
-      ['Recibido', 'En preparación', 'Listo', 'Entregado', 'Cancelado']
-        .forEach(s => {
-          const op = document.createElement('option');
-          op.value = s;
-          op.textContent = s;
-          op.selected = o.status === s;
-          select.append(op);
-        });
+      [
+        'Recibido',
+        'En preparación',
+        'Listo',
+        'Entregado',
+        'Cancelado'
+      ].forEach(status => {
+        const option = document.createElement('option');
+        option.value = status;
+        option.textContent = status;
+        option.selected = order.status === status;
+        statusSelect.append(option);
+      });
 
-      select.onchange = async () => {
+      statusSelect.addEventListener('change', async () => {
+        statusSelect.disabled = true;
+
         try {
-          const response = await fetch('/api/orders/' + o.id, {
+          await apiFetch('/api/orders/' + order.id, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: select.value })
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              status: statusSelect.value
+            })
           });
-
-          if (!response.ok) throw new Error();
-        } catch {
-          alert('No se pudo actualizar el estado del pedido.');
+        } catch (error) {
+          alert(error.message || 'No se pudo actualizar el pedido.');
+          await loadOrders();
+        } finally {
+          statusSelect.disabled = false;
         }
-      };
+      });
 
-      top.append(meta, select);
+      top.append(meta, statusSelect);
       card.append(top);
 
       const list = document.createElement('ul');
       list.className = 'order-items';
 
-      (o.items || []).forEach(i => {
+      (order.items || []).forEach(item => {
         const li = document.createElement('li');
-        li.innerHTML =
-          `<span>${i.quantity} × ${escapeHtml(i.name)}</span>
-           <strong>${fmt(i.price * i.quantity)}</strong>`;
+
+        const quantity = document.createElement('span');
+        quantity.textContent =
+          `${item.quantity} × ${item.name}`;
+
+        const price = document.createElement('strong');
+        price.textContent = fmt(
+          Number(item.price || 0) * Number(item.quantity || 0)
+        );
+
+        li.append(quantity, price);
         list.append(li);
       });
 
       card.append(list);
 
-      if (o.notes) {
+      if (order.notes) {
         const note = document.createElement('div');
         note.className = 'notes';
-        note.textContent = 'Nota: ' + o.notes;
+        note.textContent = 'Nota: ' + order.notes;
         card.append(note);
       }
 
       const bottom = document.createElement('div');
       bottom.className = 'order-bottom';
-      bottom.innerHTML =
-        `<span class="muted">${(o.items || []).length} línea(s) de productos</span>
-         <span class="total">${fmt(o.total)}</span>`;
 
+      const count = document.createElement('span');
+      count.className = 'muted';
+      count.textContent =
+        `${(order.items || []).length} línea(s) de productos`;
+
+      const total = document.createElement('span');
+      total.className = 'total';
+      total.textContent = fmt(order.total);
+
+      bottom.append(count, total);
       card.append(bottom);
       ordersEl.append(card);
     });
-  } catch {
+  } catch (error) {
+    console.error('Error cargando pedidos:', error);
     ordersEl.innerHTML =
-      '<div class="empty">No se pudo conectar con el servidor.</div>';
+      '<div class="empty">No se pudieron cargar los pedidos.</div>';
   }
 }
 
 // -------------------- CATEGORÍAS --------------------
 
 async function fetchCategories() {
-  const r = await fetch('/api/categories', { cache: 'no-store' });
+  const categories = await apiFetch('/api/categories');
 
-  if (!r.ok) {
-    throw new Error('No se pudieron cargar las categorías.');
+  if (!Array.isArray(categories)) {
+    throw new Error('La respuesta de categorías no es válida.');
   }
 
-  return await r.json();
+  return categories;
 }
 
 async function fetchProducts() {
-  const r = await fetch('/api/products', { cache: 'no-store' });
+  const products = await apiFetch('/api/products');
 
-  if (!r.ok) {
-    throw new Error('No se pudieron cargar los productos.');
+  if (!Array.isArray(products)) {
+    throw new Error('La respuesta de productos no es válida.');
   }
 
-  return await r.json();
+  return products;
 }
 
 async function loadCategories(selectedName = '') {
+  if (categorySelect) {
+    categorySelect.innerHTML =
+      '<option value="">Elegí una categoría</option>';
+  }
+
   try {
     const categories = await fetchCategories();
 
-    categorySelect.innerHTML =
-      '<option value="">Elegí una categoría</option>';
+    if (categorySelect) {
+      categories.forEach(category => {
+        const name = getCategoryName(category);
+        if (!name) return;
 
-    categories.forEach(c => {
-      const name = getCategoryName(c);
-      if (!name) return;
-
-      const option = document.createElement('option');
-      option.value = name;
-      option.textContent = name;
-      option.selected = name === selectedName;
-      categorySelect.append(option);
-    });
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        option.selected = name === selectedName;
+        categorySelect.append(option);
+      });
+    }
 
     await renderCategories(categories);
-  } catch (err) {
-    categoryMsg.textContent = err.message;
-    categoryMsg.className = 'error';
+  } catch (error) {
+    console.error('Error cargando categorías:', error);
+
+    if (categoryMsg) {
+      categoryMsg.textContent =
+        error.message || 'No se pudieron cargar las categorías.';
+      categoryMsg.className = 'error';
+    }
   }
 }
 
@@ -208,9 +267,10 @@ async function renderCategories(categories) {
 
   try {
     products = await fetchProducts();
-  } catch (err) {
+  } catch (error) {
     categoriesList.innerHTML =
       '<div class="empty">No se pudieron cargar los productos.</div>';
+    console.error(error);
     return;
   }
 
@@ -228,10 +288,12 @@ async function renderCategories(categories) {
     )
     .forEach(category => {
       const name = getCategoryName(category);
-      const id = typeof category === 'object' ? category.id : null;
+      const id = typeof category === 'object'
+        ? category.id
+        : null;
 
       const matchingProducts = products.filter(
-        p => (p.category || 'Sin categoría') === name
+        product => (product.category || 'Sin categoría') === name
       );
 
       const group = document.createElement('details');
@@ -250,23 +312,24 @@ async function renderCategories(categories) {
       if (!matchingProducts.length) {
         const empty = document.createElement('p');
         empty.className = 'muted';
-        empty.textContent = 'Esta categoría todavía no tiene productos.';
+        empty.textContent =
+          'Esta categoría todavía no tiene productos.';
         content.append(empty);
       } else {
-        matchingProducts.forEach(p => {
+        matchingProducts.forEach(product => {
           const row = document.createElement('div');
           row.className = 'product-row';
 
           const info = document.createElement('span');
           info.innerHTML =
-            `<strong>${escapeHtml(p.name)}</strong> · ${fmt(p.price)}`;
+            `<strong>${escapeHtml(product.name)}</strong> · ` +
+            `${fmt(product.price)}`;
 
           row.append(info);
           content.append(row);
         });
       }
 
-      // Solo mostrar eliminación si la API devuelve un ID.
       if (id !== null && id !== undefined) {
         const remove = document.createElement('button');
         remove.className = 'remove';
@@ -282,28 +345,25 @@ async function renderCategories(categories) {
             return;
           }
 
-          if (!confirm(`¿Eliminar la categoría "${name}"?`)) return;
+          if (!confirm(`¿Eliminar la categoría "${name}"?`)) {
+            return;
+          }
 
           try {
-            const response = await fetch('/api/categories/' + id, {
+            await apiFetch('/api/categories/' + id, {
               method: 'DELETE'
             });
 
-            const data = await readResponse(response);
-
-            if (!response.ok) {
-              throw new Error(
-                data.error || data.message ||
-                'No se pudo eliminar la categoría.'
-              );
-            }
-
             await loadCategories();
 
-            categoryMsg.textContent = 'Categoría eliminada.';
-            categoryMsg.className = 'success';
-          } catch (err) {
-            alert(err.message || 'No se pudo eliminar la categoría.');
+            if (categoryMsg) {
+              categoryMsg.textContent = 'Categoría eliminada.';
+              categoryMsg.className = 'success';
+            }
+          } catch (error) {
+            alert(
+              error.message || 'No se pudo eliminar la categoría.'
+            );
           }
         });
 
@@ -318,6 +378,8 @@ async function renderCategories(categories) {
 // -------------------- PRODUCTOS --------------------
 
 async function loadProducts() {
+  if (!productsEl) return;
+
   try {
     const [products, categories] = await Promise.all([
       fetchProducts(),
@@ -328,15 +390,16 @@ async function loadProducts() {
 
     const groups = {};
 
-    categories.forEach(c => {
-      const name = getCategoryName(c);
+    categories.forEach(category => {
+      const name = getCategoryName(category);
       if (name) groups[name] = [];
     });
 
-    products.forEach(p => {
-      const category = p.category || 'Sin categoría';
+    products.forEach(product => {
+      const category = product.category || 'Sin categoría';
+
       if (!groups[category]) groups[category] = [];
-      groups[category].push(p);
+      groups[category].push(product);
     });
 
     const names = Object.keys(groups).sort((a, b) =>
@@ -363,43 +426,45 @@ async function loadProducts() {
       if (!groups[category].length) {
         const empty = document.createElement('p');
         empty.className = 'muted';
-        empty.textContent = 'Todavía no hay productos en esta categoría.';
+        empty.textContent =
+          'Todavía no hay productos en esta categoría.';
         details.append(empty);
       }
 
-      groups[category].forEach(p => {
+      groups[category].forEach(product => {
         const row = document.createElement('div');
         row.className = 'product-row';
 
         const info = document.createElement('span');
         info.innerHTML =
-          `<strong>${escapeHtml(p.name)}</strong> · ${fmt(p.price)}`;
+          `<strong>${escapeHtml(product.name)}</strong> · ` +
+          `${fmt(product.price)}`;
 
         const remove = document.createElement('button');
         remove.className = 'remove';
         remove.type = 'button';
         remove.textContent = 'Quitar';
 
-        remove.onclick = async () => {
-          if (!confirm('¿Quitar ' + p.name + ' del catálogo?')) return;
+        remove.addEventListener('click', async () => {
+          if (!confirm(
+            `¿Quitar ${product.name} del catálogo?`
+          )) {
+            return;
+          }
 
           try {
-            const response = await fetch('/api/products/' + p.id, {
+            await apiFetch('/api/products/' + product.id, {
               method: 'DELETE'
             });
 
-            const data = await readResponse(response);
-
-            if (!response.ok) {
-              throw new Error(data.error || 'No se pudo quitar el producto.');
-            }
-
             await loadProducts();
             await loadCategories();
-          } catch (err) {
-            alert(err.message || 'No se pudo quitar el producto.');
+          } catch (error) {
+            alert(
+              error.message || 'No se pudo quitar el producto.'
+            );
           }
-        };
+        });
 
         row.append(info, remove);
         details.append(row);
@@ -407,48 +472,27 @@ async function loadProducts() {
 
       productsEl.append(details);
     });
-  } catch {
+  } catch (error) {
+    console.error('Error cargando productos:', error);
     productsEl.innerHTML =
       '<div class="empty">No se pudieron cargar los productos.</div>';
   }
 }
 
-function showCategoriesTab() {
-  const tab = document.querySelector(
-    '.admin-tab[data-tab="categories-section"]'
-  );
-  const panel = document.getElementById('categories-section');
-
-  if (!tab || !panel) {
-    console.error('No se encontró la pestaña o el panel de Categorías.');
-    return;
-  }
-
-  document.querySelectorAll('.admin-tab').forEach(button => {
-    const active = button === tab;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-selected', String(active));
-  });
-
-  document.querySelectorAll('.admin-section').forEach(section => {
-    section.hidden = section !== panel;
-  });
-}
-
-
 // -------------------- CREAR CATEGORÍA --------------------
 
 if (categoryForm) {
-  categoryForm.addEventListener('submit', async e => {
-    // Evita que el navegador recargue la página.
-    e.preventDefault();
-    e.stopPropagation();
+  categoryForm.addEventListener('submit', async event => {
+    event.preventDefault();
 
-    const name = categoryInput.value.trim();
+    const name = categoryInput?.value.trim();
 
     if (!name) {
-      categoryMsg.textContent = 'Ingresá un nombre para la categoría.';
-      categoryMsg.className = 'error';
+      if (categoryMsg) {
+        categoryMsg.textContent =
+          'Ingresá un nombre para la categoría.';
+        categoryMsg.className = 'error';
+      }
       return;
     }
 
@@ -458,89 +502,96 @@ if (categoryForm) {
 
     if (submitButton) submitButton.disabled = true;
 
-    categoryMsg.textContent = 'Creando categoría…';
-    categoryMsg.className = '';
+    if (categoryMsg) {
+      categoryMsg.textContent = 'Creando categoría…';
+      categoryMsg.className = '';
+    }
 
     try {
-      const r = await fetch('/api/categories', {
+      await apiFetch('/api/categories', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({ name })
       });
 
-      const data = await readResponse(r);
-
-      if (!r.ok) {
-        throw new Error(
-          data.error || data.message ||
-          `No se pudo crear la categoría (HTTP ${r.status}).`
-        );
-      }
-
       categoryInput.value = '';
 
-      // Actualiza el listado y el selector sin recargar la página.
       await loadCategories(name);
       await loadProducts();
 
-      categoryMsg.textContent = '¡Categoría creada con éxito!';
-      categoryMsg.className = 'success';
+      if (categoryMsg) {
+        categoryMsg.textContent =
+          '¡Categoría creada con éxito!';
+        categoryMsg.className = 'success';
+      }
 
-      // Si la interfaz usa pestañas, permanecer en Categorías.
       showCategoriesTab();
-    } catch (err) {
-      categoryMsg.textContent =
-        err.message || 'Error al crear la categoría.';
-      categoryMsg.className = 'error';
-      console.error('Error al crear categoría:', err);
+    } catch (error) {
+      if (categoryMsg) {
+        categoryMsg.textContent =
+          error.message || 'Error al crear la categoría.';
+        categoryMsg.className = 'error';
+      }
+
+      console.error('Error al crear categoría:', error);
     } finally {
       if (submitButton) submitButton.disabled = false;
     }
   });
 } else {
-  console.error('No se encontró el formulario #category-form en admin.html.');
+  console.error(
+    'No se encontró el formulario #category-form en admin.html.'
+  );
 }
 
 // -------------------- AGREGAR PRODUCTO --------------------
 
-const productForm = document.querySelector('#productForm');
-
 if (productForm) {
-  productForm.addEventListener('submit', async e => {
-    e.preventDefault();
+  productForm.addEventListener('submit', async event => {
+    event.preventDefault();
 
-    productMsg.textContent = 'Guardando…';
-    productMsg.className = '';
+    if (productMsg) {
+      productMsg.textContent = 'Guardando…';
+      productMsg.className = '';
+    }
+
+    const nameInput = document.querySelector('#productName');
+    const priceInput = document.querySelector('#price');
 
     const body = {
-      category: categorySelect.value,
-      name: document.querySelector('#productName').value.trim(),
-      price: document.querySelector('#price').value
+      category: categorySelect?.value || '',
+      name: nameInput?.value.trim() || '',
+      price: priceInput?.value || ''
     };
 
     try {
-      const r = await fetch('/api/products', {
+      await apiFetch('/api/products', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify(body)
       });
 
-      const data = await readResponse(r);
-
-      if (!r.ok) {
-        throw new Error(data.error || data.message || 'Error al guardar.');
-      }
-
       productForm.reset();
 
-      productMsg.textContent = 'Producto agregado con éxito.';
-      productMsg.className = 'success';
+      if (productMsg) {
+        productMsg.textContent = 'Producto agregado con éxito.';
+        productMsg.className = 'success';
+      }
 
       await loadProducts();
       await loadCategories(body.category);
-    } catch (err) {
-      productMsg.textContent = err.message || 'Error al guardar.';
-      productMsg.className = 'error';
+    } catch (error) {
+      if (productMsg) {
+        productMsg.textContent =
+          error.message || 'Error al guardar el producto.';
+        productMsg.className = 'error';
+      }
+
+      console.error('Error agregando producto:', error);
     }
   });
 }
@@ -550,13 +601,13 @@ if (productForm) {
 const refreshButton = document.querySelector('#refresh');
 
 if (refreshButton) {
-  refreshButton.onclick = async () => {
+  refreshButton.addEventListener('click', async () => {
     await Promise.all([
       loadOrders(),
       loadProducts(),
       loadCategories()
     ]);
-  };
+  });
 }
 
 // -------------------- INICIO --------------------
@@ -567,4 +618,3 @@ loadCategories();
 
 setInterval(loadOrders, 3000);
 setInterval(loadProducts, 10000);
-```
