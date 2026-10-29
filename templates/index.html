@@ -2,8 +2,10 @@
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Nuevo pedido</title><link rel="stylesheet" href="/static/style.css"></head>
 <body><header><div class="brand">MESA<span> / PEDIDOS</span></div><a class="nav" href="/admin">Panel del servidor →</a></header>
-<main class="wrap"><section class="hero"><p class="eyebrow"> </p><h1>¿Qué vamos a pedir?</h1><p class="muted">Elegí productos, revisá el total y enviá tu pedido.</p></section>
+<main class="wrap"><section class="hero"><p class="eyebrow"> </p><h1>¿Qué vamos a pedir?</h1><p class="muted">Elegí los productos y las cantidades que necesitás.</p></section>
 <form id="orderForm" class="panel"><label>Fecha del pedido<input id="customer" required maxlength="100" placeholder=" "></label>
 <div id="catalog"></div><label>Notas para cocina o barra (opcional)<textarea id="notes" rows="2" maxlength="500" placeholder=" "></textarea></label>
-<div class="checkout"><div><span class="muted">Total del pedido</span><strong id="total">$ 0</strong></div><button class="primary" type="submit">Enviar pedido</button></div><p id="message" role="status"></p></form>
+<div class="checkout"><div class="checkout">
+  <button class="primary" type="submit">Enviar solicitud</button>
+</div><button class="primary" type="submit">Enviar pedido</button></div><p id="message" role="status"></p></form>
 <footer>Pedidos · Aplicación local</footer></main><script src="/static/client.js"></script></body></html>
