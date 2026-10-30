@@ -80,13 +80,11 @@ function render() {
 
       const info = document.createElement('div');
 
-      const name = document.createElement('div');
-      name.className = 'product-name';
-      name.textContent = product.name;
+     const name = document.createElement('div');
+name.className = 'product-name';
+name.textContent = product.name;
 
-    price: Number(document.querySelector('#price').value)
-
-      info.append(name, price);
+info.append(name);
 
       const controls = document.createElement('div');
       controls.className = 'qty';
