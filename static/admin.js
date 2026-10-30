@@ -1,4 +1,4 @@
-
+```javascript
 const ordersEl = document.querySelector('#orders');
 const productsEl = document.querySelector('#products');
 const productMsg = document.querySelector('#productMessage');
@@ -117,8 +117,8 @@ async function loadOrders() {
 
       [
         'Pedido',
-  'Recibido',
-  'Sin stock'
+        'Recibido',
+        'Sin stock'
       ].forEach(status => {
         const option = document.createElement('option');
         option.value = status;
@@ -161,12 +161,7 @@ async function loadOrders() {
         quantity.textContent =
           `${item.quantity} × ${item.name}`;
 
-        const price = document.createElement('strong');
-        price.textContent = fmt(
-          Number(item.price || 0) * Number(item.quantity || 0)
-        );
-
-        li.append(quantity, price);
+        li.append(quantity);
         list.append(li);
       });
 
@@ -187,12 +182,9 @@ async function loadOrders() {
       count.textContent =
         `${(order.items || []).length} línea(s) de productos`;
 
-      const total = document.createElement('span');
-      total.className = 'total';
-      total.textContent = fmt(order.total);
-
-      bottom.append(count, total);
+      bottom.append(count);
       card.append(bottom);
+
       ordersEl.append(card);
     });
   } catch (error) {
@@ -318,8 +310,10 @@ async function renderCategories(categories) {
           const row = document.createElement('div');
           row.className = 'product-row';
 
-        const info = document.createElement('span');
-info.innerHTML = `<strong>${escapeHtml(product.name)}</strong>`;
+          const info = document.createElement('span');
+          info.innerHTML =
+            `<strong>${escapeHtml(product.name)}</strong>`;
+
           row.append(info);
           content.append(row);
         });
@@ -430,8 +424,9 @@ async function loadProducts() {
         const row = document.createElement('div');
         row.className = 'product-row';
 
-      const info = document.createElement('span');
-info.innerHTML = `<strong>${escapeHtml(product.name)}</strong>`;
+        const info = document.createElement('span');
+        info.innerHTML =
+          `<strong>${escapeHtml(product.name)}</strong>`;
 
         const remove = document.createElement('button');
         remove.className = 'remove';
@@ -533,10 +528,6 @@ if (categoryForm) {
       if (submitButton) submitButton.disabled = false;
     }
   });
-} else {
-  console.error(
-    'No se encontró el formulario #category-form en admin.html.'
-  );
 }
 
 // -------------------- AGREGAR PRODUCTO --------------------
@@ -611,3 +602,4 @@ loadCategories();
 
 setInterval(loadOrders, 3000);
 setInterval(loadProducts, 10000);
+```
