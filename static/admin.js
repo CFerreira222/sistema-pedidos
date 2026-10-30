@@ -116,11 +116,9 @@ async function loadOrders() {
       statusSelect.className = 'status';
 
       [
-        'Recibido',
-        'En preparación',
-        'Listo',
-        'Entregado',
-        'Cancelado'
+        'Pedido',
+  'Recibido',
+  'Sin stock'
       ].forEach(status => {
         const option = document.createElement('option');
         option.value = status;
