@@ -430,10 +430,7 @@ async function loadProducts() {
         row.className = 'product-row';
 
         const info = document.createElement('span');
-        info.innerHTML = `
-          <strong>${escapeHtml(product.name)}</strong>
-          <span class="muted"> — ${fmt(product.price)}</span>
-        `;
+        info.innerHTML = `<strong>${escapeHtml(product.name)}</strong>`;
 
         const remove = document.createElement('button');
         remove.className = 'remove';
