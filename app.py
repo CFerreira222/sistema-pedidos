@@ -1,5 +1,7 @@
 
-from flask import Flask, render_template, request, jsonify, Response, send_file
+from flask import (
+    Flask, render_template, request, jsonify, Response, send_file
+)
 import sqlite3
 import os
 import hmac
@@ -18,6 +20,7 @@ from reportlab.platypus import (
     Table,
     TableStyle
 )
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "pedidos.db")
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
@@ -164,6 +167,7 @@ def init_db():
                     active INTEGER NOT NULL DEFAULT 1
                 )
             """)
+
             c.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
                     id BIGSERIAL PRIMARY KEY,
@@ -173,6 +177,7 @@ def init_db():
                     created_at TEXT NOT NULL
                 )
             """)
+
             c.execute("""
                 CREATE TABLE IF NOT EXISTS order_items (
                     id BIGSERIAL PRIMARY KEY,
@@ -185,12 +190,14 @@ def init_db():
                         REFERENCES orders(id) ON DELETE CASCADE
                 )
             """)
+
             c.execute("""
                 CREATE TABLE IF NOT EXISTS categories (
                     id BIGSERIAL PRIMARY KEY,
                     name TEXT NOT NULL UNIQUE
                 )
             """)
+
         else:
             c.execute("""
                 CREATE TABLE IF NOT EXISTS products (
@@ -201,6 +208,7 @@ def init_db():
                     active INTEGER NOT NULL DEFAULT 1
                 )
             """)
+
             c.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -210,6 +218,7 @@ def init_db():
                     created_at TEXT NOT NULL
                 )
             """)
+
             c.execute("""
                 CREATE TABLE IF NOT EXISTS order_items (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -222,6 +231,7 @@ def init_db():
                         REFERENCES orders(id) ON DELETE CASCADE
                 )
             """)
+
             c.execute("""
                 CREATE TABLE IF NOT EXISTS categories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -239,7 +249,6 @@ def init_db():
                 DEFAULT_PRODUCTS
             )
 
-        # Importar categorías de los productos que ya existen.
         c.execute("""
             INSERT INTO categories(name)
             SELECT DISTINCT TRIM(category)
@@ -253,6 +262,106 @@ def money(n):
     return round(float(n), 2)
 
 
+def generar_pdf_pedido(oid, customer, notes, items, fecha):
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=20 * mm,
+        leftMargin=20 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm
+    )
+
+    styles = getSampleStyleSheet()
+
+    content = [
+        Paragraph(f"<b>PEDIDO #{oid}</b>", styles["Title"]),
+        Spacer(1, 6 * mm),
+        Paragraph(
+            f"<b>Cliente:</b> {escape(customer)}",
+            styles["Normal"]
+        ),
+        Paragraph(
+            f"<b>Fecha:</b> {escape(fecha)}",
+            styles["Normal"]
+        ),
+        Spacer(1, 7 * mm)
+    ]
+
+    table_data = [
+        ["Cantidad", "Producto", "Precio unit.", "Subtotal"]
+    ]
+
+    total = 0
+
+    for item in items:
+        name = str(item[1])
+        price = float(item[2])
+        quantity = int(item[3])
+        subtotal = price * quantity
+        total += subtotal
+
+        table_data.append([
+            str(quantity),
+            Paragraph(escape(name), styles["BodyText"]),
+            f"$ {price:,.2f}",
+            f"$ {subtotal:,.2f}"
+        ])
+
+    table_data.append([
+        "",
+        "",
+        "TOTAL",
+        f"$ {total:,.2f}"
+    ])
+
+    table = Table(
+        table_data,
+        colWidths=[
+            22 * mm,
+            78 * mm,
+            32 * mm,
+            35 * mm
+        ],
+        repeatRows=1
+    )
+
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#222222")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("SPAN", (0, -1), (1, -1)),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+        ("GRID", (0, 0), (-1, -2), 0.4, colors.grey),
+        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+
+    content.append(table)
+
+    if notes:
+        content.extend([
+            Spacer(1, 8 * mm),
+            Paragraph(
+                f"<b>Observaciones:</b> {escape(notes)}",
+                styles["BodyText"]
+            )
+        ])
+
+    doc.build(content)
+    buffer.seek(0)
+
+    return buffer
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -263,24 +372,25 @@ def admin():
     return render_template("admin.html")
 
 
-# Listar categorías/proveedores.
 @app.get("/api/categories")
 def get_categories():
     with db() as c:
         rows = c.execute(
             "SELECT id, name FROM categories ORDER BY name"
         ).fetchall()
+
     return jsonify([dict(r) for r in rows])
 
 
-# Crear categoría/proveedor.
 @app.post("/api/categories")
 def add_category():
     data = request.get_json(silent=True) or {}
     name = str(data.get("name", "")).strip()[:60]
 
     if not name:
-        return jsonify(error="Ingresá el nombre del proveedor."), 400
+        return jsonify(
+            error="Ingresá el nombre del proveedor."
+        ), 400
 
     try:
         with db() as c:
@@ -288,16 +398,21 @@ def add_category():
                 "INSERT INTO categories(name) VALUES(?) RETURNING id",
                 (name,)
             )
+
             category_id = cur.fetchone()["id"]
 
-        return jsonify(ok=True, id=category_id, name=name)
+        return jsonify(
+            ok=True,
+            id=category_id,
+            name=name
+        )
+
     except Exception:
         return jsonify(
             error="Ese proveedor ya existe o no se pudo guardar."
         ), 409
 
 
-# Eliminar categoría solo si no tiene productos asociados.
 @app.delete("/api/categories/<int:category_id>")
 def delete_category(category_id):
     with db() as c:
@@ -307,7 +422,9 @@ def delete_category(category_id):
         ).fetchone()
 
         if not category:
-            return jsonify(error="Categoría no encontrada."), 404
+            return jsonify(
+                error="Categoría no encontrada."
+            ), 404
 
         count = c.execute(
             "SELECT COUNT(*) AS n FROM products WHERE category = ?",
@@ -327,10 +444,12 @@ def delete_category(category_id):
             (category_id,)
         )
 
-    return jsonify(ok=True, message="Categoría eliminada con éxito.")
+    return jsonify(
+        ok=True,
+        message="Categoría eliminada con éxito."
+    )
 
 
-# Listar productos activos.
 @app.get("/api/products")
 def products():
     with db() as c:
@@ -340,76 +459,10 @@ def products():
             WHERE active = 1
             ORDER BY category, name
         """).fetchall()
+
     return jsonify([dict(r) for r in rows])
-def generar_pdf_pedido(oid, customer, notes, items, fecha):
-    buffer = io.BytesIO()
 
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=20 * mm,
-        leftMargin=20 * mm,
-        topMargin=20 * mm,
-        bottomMargin=20 * mm
-    )
 
-    styles = getSampleStyleSheet()
-    contenido = []
-
-    contenido.append(
-        Paragraph(f"<b>PEDIDO #{oid}</b>", styles["Title"])
-    )
-    contenido.append(Spacer(1, 8 * mm))
-
-    contenido.append(Paragraph(
-        f"<b>Cliente:</b> {escape(customer)}",
-        styles["Normal"]
-    ))
-
-    contenido.append(Paragraph(
-        f"<b>Fecha:</b> {escape(fecha)}",
-        styles["Normal"]
-    ))
-
-    contenido.append(Spacer(1, 8 * mm))
-
-    tabla = [["CANTIDAD", "PRODUCTO"]]
-
-    for item in items:
-        tabla.append([
-            str(item[3]),
-            escape(str(item[1]))
-        ])
-
-    tabla_pdf = Table(
-        tabla,
-        colWidths=[35 * mm, 125 * mm]
-    )
-
-    tabla_pdf.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#222222")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("PADDING", (0, 0), (-1, -1), 9),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-
-    contenido.append(tabla_pdf)
-
-    if notes:
-        contenido.append(Spacer(1, 8 * mm))
-        contenido.append(Paragraph(
-            f"<b>Observaciones:</b> {escape(notes)}",
-            styles["Normal"]
-        ))
-
-    doc.build(contenido)
-    buffer.seek(0)
-
-    return buffer
-
-# Crear pedido.
 @app.post("/api/orders")
 def create_order():
     data = request.get_json(silent=True) or {}
@@ -419,10 +472,14 @@ def create_order():
     notes = str(data.get("notes", "")).strip()[:500]
 
     if not customer:
-        return jsonify(error="Ingresá el nombre del cliente."), 400
+        return jsonify(
+            error="Ingresá el nombre del cliente."
+        ), 400
 
     if not isinstance(items, list) or not items:
-        return jsonify(error="Agregá al menos un producto."), 400
+        return jsonify(
+            error="Agregá al menos un producto."
+        ), 400
 
     with db() as c:
         valid = []
@@ -437,17 +494,17 @@ def create_order():
             if qty < 1 or qty > 99:
                 continue
 
-            p = c.execute("""
+            product = c.execute("""
                 SELECT id, name, price
                 FROM products
                 WHERE id = ? AND active = 1
             """, (pid,)).fetchone()
 
-            if p:
+            if product:
                 valid.append((
-                    p["id"],
-                    p["name"],
-                    money(p["price"]),
+                    product["id"],
+                    product["name"],
+                    money(product["price"]),
                     qty
                 ))
 
@@ -461,85 +518,101 @@ def create_order():
         )
 
         cur = c.execute("""
-            INSERT INTO orders(customer, notes, status, created_at)
+            INSERT INTO orders(
+                customer, notes, status, created_at
+            )
             VALUES(?,?,?,?)
             RETURNING id
-        """, (customer, notes, "Recibido", now))
+        """, (
+            customer,
+            notes,
+            "Recibido",
+            now
+        ))
 
-        oid = cur.fetchone()["id"]
+        order_id = cur.fetchone()["id"]
 
         c.executemany("""
             INSERT INTO order_items(
                 order_id, product_id, name, price, quantity
             )
             VALUES(?,?,?,?,?)
-        """, [(oid, *x) for x in valid])
+        """, [
+            (order_id, *item)
+            for item in valid
+        ])
 
-    # Generar PDF después de guardar el pedido.
-    pdf = generar_pdf_pedido(
-        oid,
-        customer,
-        notes,
-        valid,
-        now
-    )
+        pdf = generar_pdf_pedido(
+            order_id,
+            customer,
+            notes,
+            valid,
+            now
+        )
 
     response = send_file(
         pdf,
         mimetype="application/pdf",
         as_attachment=True,
-        download_name=f"pedido_{oid}.pdf"
+        download_name=f"pedido_{order_id}.pdf"
     )
 
-    response.headers["X-Order-ID"] = str(oid)
-    response.headers["Access-Control-Expose-Headers"] = "X-Order-ID"
+    response.headers["X-Order-ID"] = str(order_id)
 
     return response
 
 
-# Consultar pedidos.
 @app.get("/api/orders")
 def get_orders():
     with db() as c:
         orders = c.execute("""
-            SELECT * FROM orders
+            SELECT *
+            FROM orders
             ORDER BY id DESC
             LIMIT 200
         """).fetchall()
 
         result = []
 
-        for o in orders:
+        for order in orders:
             items = c.execute("""
                 SELECT name, price, quantity
                 FROM order_items
                 WHERE order_id = ?
                 ORDER BY id
-            """, (o["id"],)).fetchall()
+            """, (order["id"],)).fetchall()
 
-            total = sum(i["price"] * i["quantity"] for i in items)
+            total = sum(
+                item["price"] * item["quantity"]
+                for item in items
+            )
 
             result.append({
-                **dict(o),
-                "items": [dict(i) for i in items],
+                **dict(order),
+                "items": [dict(item) for item in items],
                 "total": money(total)
             })
 
     return jsonify(result)
 
 
-# Cambiar estado del pedido.
 @app.patch("/api/orders/<int:oid>")
 def update_order(oid):
     data = request.get_json(silent=True) or {}
     status = data.get("status")
 
     allowed = [
-        "Recibido", "En preparación", "Listo", "Entregado", "Cancelado"
+        "Recibido",
+        "En preparación",
+        "Listo",
+        "Entregado",
+        "Cancelado"
     ]
 
     if status not in allowed:
-        return jsonify(error="Estado no válido."), 400
+        return jsonify(
+            error="Estado no válido."
+        ), 400
 
     with db() as c:
         cur = c.execute(
@@ -548,15 +621,17 @@ def update_order(oid):
         )
 
         if cur.rowcount == 0:
-            return jsonify(error="Pedido no encontrado."), 404
+            return jsonify(
+                error="Pedido no encontrado."
+            ), 404
 
     return jsonify(ok=True)
 
 
-# Crear producto asociado a una categoría/proveedor existente.
 @app.post("/api/products")
 def add_product():
     data = request.get_json(silent=True) or {}
+
     category = str(data.get("category", "")).strip()[:60]
     name = str(data.get("name", "")).strip()[:100]
 
@@ -565,7 +640,12 @@ def add_product():
     except (ValueError, TypeError):
         price = -1
 
-    if not category or not name or price < 0 or price > 1000000:
+    if (
+        not category
+        or not name
+        or price < 0
+        or price > 1000000
+    ):
         return jsonify(
             error="Completá proveedor, producto y precio válido."
         ), 400
@@ -577,30 +657,44 @@ def add_product():
         ).fetchone()
 
         if not provider:
-            return jsonify(error="Elegí un proveedor existente."), 400
+            return jsonify(
+                error="Elegí un proveedor existente."
+            ), 400
 
         cur = c.execute("""
             INSERT INTO products(category, name, price)
             VALUES(?,?,?)
             RETURNING id
-        """, (category, name, money(price)))
+        """, (
+            category,
+            name,
+            money(price)
+        ))
 
         product_id = cur.fetchone()["id"]
 
-    return jsonify(ok=True, id=product_id)
+    return jsonify(
+        ok=True,
+        id=product_id
+    )
 
 
-# Desactivar producto sin borrar el historial de pedidos.
 @app.delete("/api/products/<int:pid>")
 def delete_product(pid):
     with db() as c:
         cur = c.execute(
-            "UPDATE products SET active = 0 WHERE id = ? AND active = 1",
+            """
+            UPDATE products
+            SET active = 0
+            WHERE id = ? AND active = 1
+            """,
             (pid,)
         )
 
         if cur.rowcount == 0:
-            return jsonify(error="Producto no encontrado."), 404
+            return jsonify(
+                error="Producto no encontrado."
+            ), 404
 
     return jsonify(ok=True)
 
