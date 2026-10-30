@@ -2,6 +2,8 @@
 const catalog = document.querySelector('#catalog');
 const msg = document.querySelector('#message');
 
+const WHATSAPP_NUMBER = '59892310415';
+
 let products = [];
 let quantities = {};
 
@@ -32,6 +34,7 @@ async function load() {
     msg.textContent = products.length
       ? ''
       : 'No hay productos disponibles.';
+
     msg.className = '';
 
   } catch (error) {
@@ -123,6 +126,9 @@ function setQty(id, quantity) {
 document.querySelector('#orderForm').addEventListener('submit', async event => {
   event.preventDefault();
 
+  const customer = document.querySelector('#customer').value.trim();
+  const notes = document.querySelector('#notes').value.trim();
+
   const items = products
     .filter(product => (quantities[product.id] || 0) > 0)
     .map(product => ({
@@ -130,11 +136,21 @@ document.querySelector('#orderForm').addEventListener('submit', async event => {
       quantity: quantities[product.id]
     }));
 
+  if (!customer) {
+    msg.textContent = 'Ingresá tu nombre.';
+    msg.className = 'error';
+    return;
+  }
+
   if (items.length === 0) {
     msg.textContent = 'Seleccioná al menos un producto.';
     msg.className = 'error';
     return;
   }
+
+  // Abrimos una pestaña antes de esperar la respuesta,
+  // para evitar que el navegador bloquee WhatsApp.
+  const whatsappWindow = window.open('about:blank', '_blank');
 
   msg.textContent = 'Enviando pedido...';
   msg.className = '';
@@ -144,19 +160,62 @@ document.querySelector('#orderForm').addEventListener('submit', async event => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        customer: document.querySelector('#customer').value,
-        notes: document.querySelector('#notes').value,
+        customer,
+        notes,
         items
       })
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.error || 'No se pudo enviar el pedido.');
+      let errorMessage = 'No se pudo enviar el pedido.';
+
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch (_) {}
+
+      throw new Error(errorMessage);
     }
 
-    msg.textContent = `¡Pedido #${data.order_id} enviado correctamente!`;
+    const orderId = response.headers.get('X-Order-ID');
+
+    if (!orderId) {
+      throw new Error('El pedido se guardó, pero no se recibió su número.');
+    }
+
+    const pdfBlob = await response.blob();
+
+    // Descargar el PDF.
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+    const downloadLink = document.createElement('a');
+
+    downloadLink.href = pdfUrl;
+    downloadLink.download = `pedido_${orderId}.pdf`;
+
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+
+    setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
+
+    // Preparar mensaje de WhatsApp.
+    const message =
+      `Hola, recibimos el pedido #${orderId} de ${customer}. ` +
+      `Adjunto el PDF con el detalle del pedido.`;
+
+    const whatsappUrl =
+      `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+
+    if (whatsappWindow) {
+      whatsappWindow.location.href = whatsappUrl;
+    } else {
+      window.location.href = whatsappUrl;
+    }
+
+    msg.textContent =
+      `¡Pedido #${orderId} guardado! Se descargó el PDF. ` +
+      'Adjuntalo en WhatsApp para enviarlo al negocio.';
+
     msg.className = 'success';
 
     quantities = {};
@@ -164,6 +223,10 @@ document.querySelector('#orderForm').addEventListener('submit', async event => {
     render();
 
   } catch (error) {
+    if (whatsappWindow && !whatsappWindow.closed) {
+      whatsappWindow.close();
+    }
+
     console.error('Error enviando pedido:', error);
     msg.textContent = error.message;
     msg.className = 'error';
