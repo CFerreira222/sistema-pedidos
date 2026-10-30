@@ -318,11 +318,8 @@ async function renderCategories(categories) {
           const row = document.createElement('div');
           row.className = 'product-row';
 
-          const info = document.createElement('span');
-          info.innerHTML =
-            `<strong>${escapeHtml(product.name)}</strong> · ` +
-            `${fmt(product.price)}`;
-
+        const info = document.createElement('span');
+info.innerHTML = `<strong>${escapeHtml(product.name)}</strong>`;
           row.append(info);
           content.append(row);
         });
