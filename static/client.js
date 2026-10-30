@@ -84,9 +84,7 @@ function render() {
       name.className = 'product-name';
       name.textContent = product.name;
 
-      const price = document.createElement('div');
-      price.className = 'product-price';
-      price.textContent = `$ ${Number(product.price).toFixed(2)}`;
+    price: Number(document.querySelector('#price').value)
 
       info.append(name, price);
 
