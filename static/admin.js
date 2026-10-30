@@ -1,4 +1,4 @@
-```javascript
+
 const ordersEl = document.querySelector('#orders');
 const productsEl = document.querySelector('#products');
 const productMsg = document.querySelector('#productMessage');
@@ -11,7 +11,7 @@ const productForm = document.querySelector('#productForm');
 
 const fmt = n =>
   '$ ' + Number(n || 0).toLocaleString('es-UY', {
-    maximumFractionDigits: 0
+    maximumFractionDigits: 2
   });
 
 function escapeHtml(value) {
@@ -115,11 +115,15 @@ async function loadOrders() {
       const statusSelect = document.createElement('select');
       statusSelect.className = 'status';
 
-      [
-        'Pedido',
+      const statuses = [
         'Recibido',
-        'Sin stock'
-      ].forEach(status => {
+        'En preparación',
+        'Listo',
+        'Entregado',
+        'Cancelado'
+      ];
+
+      statuses.forEach(status => {
         const option = document.createElement('option');
         option.value = status;
         option.textContent = status;
@@ -161,7 +165,11 @@ async function loadOrders() {
         quantity.textContent =
           `${item.quantity} × ${item.name}`;
 
-        li.append(quantity);
+        const subtotal = document.createElement('span');
+        subtotal.textContent =
+          fmt(Number(item.price) * Number(item.quantity));
+
+        li.append(quantity, subtotal);
         list.append(li);
       });
 
@@ -182,11 +190,15 @@ async function loadOrders() {
       count.textContent =
         `${(order.items || []).length} línea(s) de productos`;
 
-      bottom.append(count);
+      const total = document.createElement('strong');
+      total.textContent = 'Total: ' + fmt(order.total);
+
+      bottom.append(count, total);
       card.append(bottom);
 
       ordersEl.append(card);
     });
+
   } catch (error) {
     console.error('Error cargando pedidos:', error);
     ordersEl.innerHTML =
@@ -217,15 +229,13 @@ async function fetchProducts() {
 }
 
 async function loadCategories(selectedName = '') {
-  if (categorySelect) {
-    categorySelect.innerHTML =
-      '<option value="">Elegí una categoría</option>';
-  }
-
   try {
     const categories = await fetchCategories();
 
     if (categorySelect) {
+      categorySelect.innerHTML =
+        '<option value="">Elegí un proveedor</option>';
+
       categories.forEach(category => {
         const name = getCategoryName(category);
         if (!name) return;
@@ -239,6 +249,11 @@ async function loadCategories(selectedName = '') {
     }
 
     await renderCategories(categories);
+
+    if (categoryMsg && !categoryMsg.classList.contains('error')) {
+      categoryMsg.textContent = '';
+    }
+
   } catch (error) {
     console.error('Error cargando categorías:', error);
 
@@ -253,16 +268,7 @@ async function loadCategories(selectedName = '') {
 async function renderCategories(categories) {
   if (!categoriesList) return;
 
-  let products;
-
-  try {
-    products = await fetchProducts();
-  } catch (error) {
-    categoriesList.innerHTML =
-      '<div class="empty">No se pudieron cargar los productos.</div>';
-    console.error(error);
-    return;
-  }
+  const products = await fetchProducts();
 
   categoriesList.innerHTML = '';
 
@@ -283,7 +289,7 @@ async function renderCategories(categories) {
         : null;
 
       const matchingProducts = products.filter(
-        product => (product.category || 'Sin categoría') === name
+        product => product.category === name
       );
 
       const group = document.createElement('details');
@@ -323,18 +329,18 @@ async function renderCategories(categories) {
         const remove = document.createElement('button');
         remove.className = 'remove';
         remove.type = 'button';
-        remove.textContent = 'Eliminar categoría';
+        remove.textContent = 'Eliminar proveedor';
 
         remove.addEventListener('click', async () => {
           if (matchingProducts.length) {
             alert(
-              'Esta categoría tiene productos asociados. ' +
-              'Quitalos o reasignalos antes de eliminarla.'
+              'Este proveedor tiene productos asociados. ' +
+              'No se puede eliminar hasta quitar o reasignar esos productos.'
             );
             return;
           }
 
-          if (!confirm(`¿Eliminar la categoría "${name}"?`)) {
+          if (!confirm(`¿Eliminar el proveedor "${name}"?`)) {
             return;
           }
 
@@ -346,13 +352,12 @@ async function renderCategories(categories) {
             await loadCategories();
 
             if (categoryMsg) {
-              categoryMsg.textContent = 'Categoría eliminada.';
+              categoryMsg.textContent = 'Proveedor eliminado.';
               categoryMsg.className = 'success';
             }
+
           } catch (error) {
-            alert(
-              error.message || 'No se pudo eliminar la categoría.'
-            );
+            alert(error.message || 'No se pudo eliminar el proveedor.');
           }
         });
 
@@ -397,7 +402,7 @@ async function loadProducts() {
 
     if (!names.length) {
       productsEl.innerHTML =
-        '<div class="empty">Primero creá una categoría.</div>';
+        '<div class="empty">Primero creá un proveedor.</div>';
       return;
     }
 
@@ -416,7 +421,7 @@ async function loadProducts() {
         const empty = document.createElement('p');
         empty.className = 'muted';
         empty.textContent =
-          'Todavía no hay productos en esta categoría.';
+          'Todavía no hay productos en este proveedor.';
         details.append(empty);
       }
 
@@ -425,8 +430,10 @@ async function loadProducts() {
         row.className = 'product-row';
 
         const info = document.createElement('span');
-        info.innerHTML =
-          `<strong>${escapeHtml(product.name)}</strong>`;
+        info.innerHTML = `
+          <strong>${escapeHtml(product.name)}</strong>
+          <span class="muted"> — ${fmt(product.price)}</span>
+        `;
 
         const remove = document.createElement('button');
         remove.className = 'remove';
@@ -434,9 +441,7 @@ async function loadProducts() {
         remove.textContent = 'Quitar';
 
         remove.addEventListener('click', async () => {
-          if (!confirm(
-            `¿Quitar ${product.name} del catálogo?`
-          )) {
+          if (!confirm(`¿Quitar ${product.name} del catálogo?`)) {
             return;
           }
 
@@ -447,10 +452,9 @@ async function loadProducts() {
 
             await loadProducts();
             await loadCategories();
+
           } catch (error) {
-            alert(
-              error.message || 'No se pudo quitar el producto.'
-            );
+            alert(error.message || 'No se pudo quitar el producto.');
           }
         });
 
@@ -460,6 +464,7 @@ async function loadProducts() {
 
       productsEl.append(details);
     });
+
   } catch (error) {
     console.error('Error cargando productos:', error);
     productsEl.innerHTML =
@@ -478,7 +483,7 @@ if (categoryForm) {
     if (!name) {
       if (categoryMsg) {
         categoryMsg.textContent =
-          'Ingresá un nombre para la categoría.';
+          'Ingresá un nombre para el proveedor.';
         categoryMsg.className = 'error';
       }
       return;
@@ -491,7 +496,7 @@ if (categoryForm) {
     if (submitButton) submitButton.disabled = true;
 
     if (categoryMsg) {
-      categoryMsg.textContent = 'Creando categoría…';
+      categoryMsg.textContent = 'Creando proveedor...';
       categoryMsg.className = '';
     }
 
@@ -510,20 +515,21 @@ if (categoryForm) {
       await loadProducts();
 
       if (categoryMsg) {
-        categoryMsg.textContent =
-          '¡Categoría creada con éxito!';
+        categoryMsg.textContent = '¡Proveedor creado con éxito!';
         categoryMsg.className = 'success';
       }
 
       showCategoriesTab();
+
     } catch (error) {
       if (categoryMsg) {
         categoryMsg.textContent =
-          error.message || 'Error al crear la categoría.';
+          error.message || 'Error al crear el proveedor.';
         categoryMsg.className = 'error';
       }
 
-      console.error('Error al crear categoría:', error);
+      console.error('Error al crear proveedor:', error);
+
     } finally {
       if (submitButton) submitButton.disabled = false;
     }
@@ -537,7 +543,7 @@ if (productForm) {
     event.preventDefault();
 
     if (productMsg) {
-      productMsg.textContent = 'Guardando…';
+      productMsg.textContent = 'Guardando...';
       productMsg.className = '';
     }
 
@@ -549,6 +555,21 @@ if (productForm) {
       name: nameInput?.value.trim() || '',
       price: priceInput?.value || ''
     };
+
+    if (!body.category || !body.name || body.price === '') {
+      if (productMsg) {
+        productMsg.textContent =
+          'Completá proveedor, producto y precio.';
+        productMsg.className = 'error';
+      }
+      return;
+    }
+
+    const submitButton = productForm.querySelector(
+      'button[type="submit"], input[type="submit"]'
+    );
+
+    if (submitButton) submitButton.disabled = true;
 
     try {
       await apiFetch('/api/products', {
@@ -568,6 +589,7 @@ if (productForm) {
 
       await loadProducts();
       await loadCategories(body.category);
+
     } catch (error) {
       if (productMsg) {
         productMsg.textContent =
@@ -576,6 +598,9 @@ if (productForm) {
       }
 
       console.error('Error agregando producto:', error);
+
+    } finally {
+      if (submitButton) submitButton.disabled = false;
     }
   });
 }
@@ -602,4 +627,3 @@ loadCategories();
 
 setInterval(loadOrders, 3000);
 setInterval(loadProducts, 10000);
-```
