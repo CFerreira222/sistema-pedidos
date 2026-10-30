@@ -1,4 +1,3 @@
-
 const catalog = document.querySelector('#catalog');
 const msg = document.querySelector('#message');
 
@@ -6,11 +5,6 @@ const WHATSAPP_NUMBER = '59892310415';
 
 let products = [];
 let quantities = {};
-
-const fmt = n =>
-  '$ ' + Number(n).toLocaleString('es-UY', {
-    maximumFractionDigits: 0
-  });
 
 async function load() {
   try {
@@ -39,10 +33,14 @@ async function load() {
 
   } catch (error) {
     console.error('Error cargando productos:', error);
-    msg.textContent = 'No se pudo cargar el catálogo: ' + error.message;
+
+    msg.textContent =
+      'No se pudo cargar el catálogo: ' + error.message;
+
     msg.className = 'error';
   }
 }
+
 
 function render() {
   catalog.innerHTML = '';
@@ -59,178 +57,215 @@ function render() {
     groups[category].push(product);
   });
 
-  Object.entries(groups).forEach(([category, groupProducts], index) => {
-    const section = document.createElement('details');
-    section.className = 'category';
-    section.open = index === 0;
+  Object.entries(groups).forEach(
+    ([category, groupProducts], index) => {
 
-    const summary = document.createElement('summary');
-    summary.textContent = category;
-    summary.style.cursor = 'pointer';
-    summary.style.fontWeight = '700';
-    summary.style.padding = '12px 0';
+      const section = document.createElement('details');
+      section.className = 'category';
+      section.open = index === 0;
 
-    section.appendChild(summary);
+      const summary = document.createElement('summary');
+      summary.textContent = category;
+      summary.style.cursor = 'pointer';
+      summary.style.fontWeight = '700';
+      summary.style.padding = '12px 0';
 
-    groupProducts.forEach(product => {
-      const quantity = quantities[product.id] || 0;
+      section.appendChild(summary);
 
-      const row = document.createElement('div');
-      row.className = 'product';
+      groupProducts.forEach(product => {
+        const quantity = quantities[product.id] || 0;
 
-      const info = document.createElement('div');
+        const row = document.createElement('div');
+        row.className = 'product';
 
-      const name = document.createElement('div');
-      name.className = 'product-name';
-      name.textContent = product.name;
+        const info = document.createElement('div');
 
-      info.append(name);
+        const name = document.createElement('div');
+        name.className = 'product-name';
+        name.textContent = product.name;
 
-      const controls = document.createElement('div');
-      controls.className = 'qty';
+        info.append(name);
 
-      const removeButton = document.createElement('button');
-      removeButton.type = 'button';
-      removeButton.textContent = '−';
-      removeButton.disabled = quantity === 0;
+        const controls = document.createElement('div');
+        controls.className = 'qty';
 
-      removeButton.addEventListener('click', () => {
-        setQty(product.id, Math.max(0, quantity - 1));
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.textContent = '−';
+        removeButton.disabled = quantity === 0;
+
+        removeButton.addEventListener('click', () => {
+          setQty(
+            product.id,
+            Math.max(0, quantity - 1)
+          );
+        });
+
+        const quantityLabel = document.createElement('span');
+        quantityLabel.textContent = quantity;
+
+        const addButton = document.createElement('button');
+        addButton.type = 'button';
+        addButton.textContent = '+';
+
+        addButton.addEventListener('click', () => {
+          setQty(
+            product.id,
+            Math.min(99, quantity + 1)
+          );
+        });
+
+        controls.append(
+          removeButton,
+          quantityLabel,
+          addButton
+        );
+
+        row.append(info, controls);
+        section.appendChild(row);
       });
 
-      const quantityLabel = document.createElement('span');
-      quantityLabel.textContent = quantity;
-
-      const addButton = document.createElement('button');
-      addButton.type = 'button';
-      addButton.textContent = '+';
-
-      addButton.addEventListener('click', () => {
-        setQty(product.id, Math.min(99, quantity + 1));
-      });
-
-      controls.append(removeButton, quantityLabel, addButton);
-      row.append(info, controls);
-      section.appendChild(row);
-    });
-
-    catalog.appendChild(section);
-  });
+      catalog.appendChild(section);
+    }
+  );
 }
+
 
 function setQty(id, quantity) {
   quantities[id] = quantity;
   render();
 }
 
-document.querySelector('#orderForm').addEventListener('submit', async event => {
-  event.preventDefault();
 
-  const customer = document.querySelector('#customer').value.trim();
-  const notes = document.querySelector('#notes').value.trim();
+document
+  .querySelector('#orderForm')
+  .addEventListener('submit', async event => {
 
-  const items = products
-    .filter(product => (quantities[product.id] || 0) > 0)
-    .map(product => ({
-      product_id: product.id,
-      quantity: quantities[product.id]
-    }));
+    event.preventDefault();
 
-  if (!customer) {
-    msg.textContent = 'Ingresá tu nombre.';
-    msg.className = 'error';
-    return;
-  }
+    const customer =
+      document.querySelector('#customer').value.trim();
 
-  if (items.length === 0) {
-    msg.textContent = 'Seleccioná al menos un producto.';
-    msg.className = 'error';
-    return;
-  }
+    const notes =
+      document.querySelector('#notes').value.trim();
 
-  // Abrimos una pestaña antes de esperar la respuesta,
-  // para evitar que el navegador bloquee WhatsApp.
-  const whatsappWindow = window.open('about:blank', '_blank');
+    const items = products
+      .filter(product => (quantities[product.id] || 0) > 0)
+      .map(product => ({
+        product_id: product.id,
+        quantity: quantities[product.id]
+      }));
 
-  msg.textContent = 'Enviando pedido...';
-  msg.className = '';
-
-  try {
-    const response = await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customer,
-        notes,
-        items
-      })
-    });
-
-    if (!response.ok) {
-      let errorMessage = 'No se pudo enviar el pedido.';
-
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorMessage;
-      } catch (_) {}
-
-      throw new Error(errorMessage);
+    if (!customer) {
+      msg.textContent = 'Ingresá tu nombre.';
+      msg.className = 'error';
+      return;
     }
 
-    const orderId = response.headers.get('X-Order-ID');
-
-    if (!orderId) {
-      throw new Error('El pedido se guardó, pero no se recibió su número.');
+    if (items.length === 0) {
+      msg.textContent = 'Seleccioná al menos un producto.';
+      msg.className = 'error';
+      return;
     }
 
-    const pdfBlob = await response.blob();
+    // Abrimos la pestaña durante el clic para evitar bloqueos.
+    const whatsappWindow = window.open('about:blank', '_blank');
 
-    // Descargar el PDF.
-    const pdfUrl = URL.createObjectURL(pdfBlob);
-    const downloadLink = document.createElement('a');
+    msg.textContent = 'Enviando pedido...';
+    msg.className = '';
 
-    downloadLink.href = pdfUrl;
-    downloadLink.download = `pedido_${orderId}.pdf`;
+    try {
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          customer,
+          notes,
+          items
+        })
+      });
 
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    downloadLink.remove();
+      if (!response.ok) {
+        let errorMessage = 'No se pudo enviar el pedido.';
 
-    setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (_) {}
 
-    // Preparar mensaje de WhatsApp.
-    const message =
-      `Hola, recibimos el pedido #${orderId} de ${customer}. ` +
-      `Adjunto el PDF con el detalle del pedido.`;
+        throw new Error(errorMessage);
+      }
 
-    const whatsappUrl =
-      `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+      const orderId = response.headers.get('X-Order-ID');
 
-    if (whatsappWindow) {
-      whatsappWindow.location.href = whatsappUrl;
-    } else {
-      window.location.href = whatsappUrl;
+      if (!orderId) {
+        throw new Error(
+          'No se recibió el número del pedido.'
+        );
+      }
+
+      const pdfBlob = await response.blob();
+
+      if (!pdfBlob.size) {
+        throw new Error(
+          'El servidor devolvió un PDF vacío.'
+        );
+      }
+
+      // Descargar el PDF.
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+
+      const downloadLink = document.createElement('a');
+      downloadLink.href = pdfUrl;
+      downloadLink.download = `pedido_${orderId}.pdf`;
+
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+
+      setTimeout(() => {
+        URL.revokeObjectURL(pdfUrl);
+      }, 60000);
+
+      // Preparar WhatsApp.
+      const message =
+        `Hola, recibimos el pedido #${orderId} de ${customer}. ` +
+        'Adjunto el PDF con el detalle del pedido.';
+
+      const whatsappUrl =
+        `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+
+      if (whatsappWindow && !whatsappWindow.closed) {
+        whatsappWindow.location.href = whatsappUrl;
+      } else {
+        window.location.href = whatsappUrl;
+      }
+
+      msg.textContent =
+        `¡Pedido #${orderId} guardado! Se descargó el PDF. ` +
+        'Adjuntalo en WhatsApp para enviarlo al negocio.';
+
+      msg.className = 'success';
+
+      quantities = {};
+
+      document.querySelector('#orderForm').reset();
+
+      render();
+
+    } catch (error) {
+      if (whatsappWindow && !whatsappWindow.closed) {
+        whatsappWindow.close();
+      }
+
+      console.error('Error enviando pedido:', error);
+
+      msg.textContent = error.message;
+      msg.className = 'error';
     }
+  });
 
-    msg.textContent =
-      `¡Pedido #${orderId} guardado! Se descargó el PDF. ` +
-      'Adjuntalo en WhatsApp para enviarlo al negocio.';
-
-    msg.className = 'success';
-
-    quantities = {};
-    document.querySelector('#orderForm').reset();
-    render();
-
-  } catch (error) {
-    if (whatsappWindow && !whatsappWindow.closed) {
-      whatsappWindow.close();
-    }
-
-    console.error('Error enviando pedido:', error);
-    msg.textContent = error.message;
-    msg.className = 'error';
-  }
-});
 
 load();
