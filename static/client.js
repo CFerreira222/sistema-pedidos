@@ -12,6 +12,9 @@ const fmt = n =>
 
 async function load() {
   try {
+    msg.textContent = 'Cargando productos...';
+    msg.className = '';
+
     const response = await fetch('/api/products');
 
     if (!response.ok) {
@@ -19,9 +22,21 @@ async function load() {
     }
 
     products = await response.json();
+
+    if (!Array.isArray(products)) {
+      throw new Error('La respuesta del servidor no es válida.');
+    }
+
     render();
+
+    msg.textContent = products.length
+      ? ''
+      : 'No hay productos disponibles.';
+    msg.className = '';
+
   } catch (error) {
-    msg.textContent = 'No se pudo conectar con el servidor.';
+    console.error('Error cargando productos:', error);
+    msg.textContent = 'No se pudo cargar el catálogo: ' + error.message;
     msg.className = 'error';
   }
 }
@@ -32,11 +47,13 @@ function render() {
   const groups = {};
 
   products.forEach(product => {
-    if (!groups[product.category]) {
-      groups[product.category] = [];
+    const category = product.category || 'Sin categoría';
+
+    if (!groups[category]) {
+      groups[category] = [];
     }
 
-    groups[product.category].push(product);
+    groups[category].push(product);
   });
 
   Object.entries(groups).forEach(([category, groupProducts], index) => {
@@ -64,7 +81,9 @@ function render() {
       name.className = 'product-name';
       name.textContent = product.name;
 
-          info.appendChild(name);
+      const price = document.createElement('div');
+      price.className = 'product-price';
+      price.textContent = fmt(product.price);
 
       info.append(name, price);
 
@@ -74,8 +93,8 @@ function render() {
       const removeButton = document.createElement('button');
       removeButton.type = 'button';
       removeButton.textContent = '−';
-      removeButton.setAttribute('aria-label', 'Quitar ' + product.name);
       removeButton.disabled = quantity === 0;
+
       removeButton.addEventListener('click', () => {
         setQty(product.id, Math.max(0, quantity - 1));
       });
@@ -86,7 +105,7 @@ function render() {
       const addButton = document.createElement('button');
       addButton.type = 'button';
       addButton.textContent = '+';
-      addButton.setAttribute('aria-label', 'Agregar ' + product.name);
+
       addButton.addEventListener('click', () => {
         setQty(product.id, Math.min(99, quantity + 1));
       });
@@ -98,8 +117,6 @@ function render() {
 
     catalog.appendChild(section);
   });
-
-  
 }
 
 function setQty(id, quantity) {
@@ -123,7 +140,7 @@ document.querySelector('#orderForm').addEventListener('submit', async event => {
     return;
   }
 
-  msg.textContent = 'Enviando pedido…';
+  msg.textContent = 'Enviando pedido...';
   msg.className = '';
 
   try {
@@ -149,7 +166,9 @@ document.querySelector('#orderForm').addEventListener('submit', async event => {
     quantities = {};
     document.querySelector('#orderForm').reset();
     render();
+
   } catch (error) {
+    console.error('Error enviando pedido:', error);
     msg.textContent = error.message;
     msg.className = 'error';
   }
