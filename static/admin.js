@@ -545,7 +545,7 @@ if (productForm) {
     }
 
     const nameInput = document.querySelector('#productName');
-    const priceInput = document.querySelector('#price');
+    
 
     const body = {
       category: categorySelect?.value || '',
