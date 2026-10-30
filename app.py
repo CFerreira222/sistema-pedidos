@@ -1,10 +1,23 @@
 
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, send_file
 import sqlite3
 import os
 import hmac
+import io
 from datetime import datetime
+from xml.sax.saxutils import escape
 
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle
+)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "pedidos.db")
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
@@ -328,12 +341,79 @@ def products():
             ORDER BY category, name
         """).fetchall()
     return jsonify([dict(r) for r in rows])
+def generar_pdf_pedido(oid, customer, notes, items, fecha):
+    buffer = io.BytesIO()
 
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=20 * mm,
+        leftMargin=20 * mm,
+        topMargin=20 * mm,
+        bottomMargin=20 * mm
+    )
+
+    styles = getSampleStyleSheet()
+    contenido = []
+
+    contenido.append(
+        Paragraph(f"<b>PEDIDO #{oid}</b>", styles["Title"])
+    )
+    contenido.append(Spacer(1, 8 * mm))
+
+    contenido.append(Paragraph(
+        f"<b>Cliente:</b> {escape(customer)}",
+        styles["Normal"]
+    ))
+
+    contenido.append(Paragraph(
+        f"<b>Fecha:</b> {escape(fecha)}",
+        styles["Normal"]
+    ))
+
+    contenido.append(Spacer(1, 8 * mm))
+
+    tabla = [["CANTIDAD", "PRODUCTO"]]
+
+    for item in items:
+        tabla.append([
+            str(item[3]),
+            escape(str(item[1]))
+        ])
+
+    tabla_pdf = Table(
+        tabla,
+        colWidths=[35 * mm, 125 * mm]
+    )
+
+    tabla_pdf.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#222222")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("PADDING", (0, 0), (-1, -1), 9),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+
+    contenido.append(tabla_pdf)
+
+    if notes:
+        contenido.append(Spacer(1, 8 * mm))
+        contenido.append(Paragraph(
+            f"<b>Observaciones:</b> {escape(notes)}",
+            styles["Normal"]
+        ))
+
+    doc.build(contenido)
+    buffer.seek(0)
+
+    return buffer
 
 # Crear pedido.
 @app.post("/api/orders")
 def create_order():
     data = request.get_json(silent=True) or {}
+
     customer = str(data.get("customer", "")).strip()
     items = data.get("items", [])
     notes = str(data.get("notes", "")).strip()[:500]
@@ -365,7 +445,10 @@ def create_order():
 
             if p:
                 valid.append((
-                    p["id"], p["name"], money(p["price"]), qty
+                    p["id"],
+                    p["name"],
+                    money(p["price"]),
+                    qty
                 ))
 
         if not valid:
@@ -373,7 +456,9 @@ def create_order():
                 error="No hay productos válidos en el pedido."
             ), 400
 
-        now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now().astimezone().strftime(
+            "%d/%m/%Y %H:%M"
+        )
 
         cur = c.execute("""
             INSERT INTO orders(customer, notes, status, created_at)
@@ -390,7 +475,26 @@ def create_order():
             VALUES(?,?,?,?,?)
         """, [(oid, *x) for x in valid])
 
-    return jsonify(ok=True, order_id=oid)
+    # Generar PDF después de guardar el pedido.
+    pdf = generar_pdf_pedido(
+        oid,
+        customer,
+        notes,
+        valid,
+        now
+    )
+
+    response = send_file(
+        pdf,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"pedido_{oid}.pdf"
+    )
+
+    response.headers["X-Order-ID"] = str(oid)
+    response.headers["Access-Control-Expose-Headers"] = "X-Order-ID"
+
+    return response
 
 
 # Consultar pedidos.
