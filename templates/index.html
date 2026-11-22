@@ -1,11 +1,62 @@
+
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nuevo pedido</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><header><div class="brand">MESA<span> / PEDIDOS</span></div><a class="nav" href="/admin">Panel del servidor →</a></header>
-<main class="wrap"><section class="hero"><p class="eyebrow"> </p><h1>Realice su pedido</h1><p class="muted">Elegí los productos y las cantidades que necesitás.</p></section>
-<form id="orderForm" class="panel"><label>Fecha del pedido<input id="customer" required maxlength="100" placeholder=" "></label>
-<div id="catalog"></div><label>Notas<textarea id="notes" rows="2" maxlength="500" placeholder=" "></textarea></label>
-<div class="checkout"><div class="checkout">
-  <button class="primary" type="submit">Enviar solicitud</button>
-</div><button class="primary" type="submit">Enviar pedido</button></div><p id="message" role="status"></p></form>
-<footer>Pedidos · Aplicación local</footer></main><script src="/static/client.js"></script></body></html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Nuevo pedido</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <div class="brand">MESA<span> / PEDIDOS</span></div>
+        <a class="nav" href="/admin">Panel del servidor →</a>
+    </header>
+
+    <main class="wrap">
+        <section class="hero">
+            <p class="eyebrow"></p>
+            <h1>Realice su pedido</h1>
+            <p class="muted">Elegí los productos y las cantidades que necesitás.</p>
+        </section>
+
+        <form id="orderForm" class="panel">
+            <div>
+                <label for="customer">Solicitante</label>
+                <input
+                    type="text"
+                    id="customer"
+                    required
+                    maxlength="100"
+                    placeholder="Nombre de quien realiza el pedido"
+                >
+            </div>
+
+            <div>
+                <label for="orderDate">Fecha del pedido</label>
+                <input
+                    type="date"
+                    id="orderDate"
+                    required
+                >
+            </div>
+
+            <div id="catalog"></div>
+
+            <label>Notas
+                <textarea id="notes" rows="2" maxlength="500" placeholder=" "></textarea>
+            </label>
+
+            <div class="checkout">
+                <button class="primary" type="submit">Enviar pedido</button>
+            </div>
+
+            <p id="message" role="status"></p>
+        </form>
+
+        <footer>Pedidos · Aplicación local</footer>
+    </main>
+
+    <script src="/static/client.js"></script>
+</body>
+</html>
