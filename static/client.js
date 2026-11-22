@@ -1,3 +1,4 @@
+
 const catalog = document.querySelector('#catalog');
 const msg = document.querySelector('#message');
 const orderForm = document.querySelector('#orderForm');
@@ -45,6 +46,14 @@ async function load() {
 
 
 function render() {
+  // Guardar qué proveedores estaban desplegados.
+  const alreadyRendered = catalog.querySelector('details.category') !== null;
+
+  const openCategories = new Set(
+    [...catalog.querySelectorAll('details.category[open]')]
+      .map(section => section.dataset.category)
+  );
+
   catalog.innerHTML = '';
 
   const groups = {};
@@ -62,7 +71,12 @@ function render() {
   Object.entries(groups).forEach(([category, groupProducts], index) => {
     const section = document.createElement('details');
     section.className = 'category';
-    section.open = index === 0;
+    section.dataset.category = category;
+
+    // Mantener el desplegable abierto al cambiar cantidades.
+    section.open = alreadyRendered
+      ? openCategories.has(category)
+      : index === 0;
 
     const summary = document.createElement('summary');
     summary.textContent = category;
@@ -80,11 +94,11 @@ function render() {
 
       const info = document.createElement('div');
 
-     const name = document.createElement('div');
-name.className = 'product-name';
-name.textContent = product.name;
+      const name = document.createElement('div');
+      name.className = 'product-name';
+      name.textContent = product.name;
 
-info.append(name);
+      info.append(name);
 
       const controls = document.createElement('div');
       controls.className = 'qty';
@@ -117,8 +131,6 @@ info.append(name);
 
     catalog.appendChild(section);
   });
-
-  renderTotal();
 }
 
 
@@ -128,31 +140,13 @@ function setQty(id, quantity) {
 }
 
 
-function renderTotal() {
-  const total = products.reduce((sum, product) => {
-    const quantity = quantities[product.id] || 0;
-    return sum + Number(product.price) * quantity;
-  }, 0);
-
-  let totalElement = document.querySelector('#orderTotal');
-
-  if (!totalElement) {
-    totalElement = document.createElement('div');
-    totalElement.id = 'orderTotal';
-    totalElement.className = 'order-total';
-    catalog.insertAdjacentElement('afterend', totalElement);
-  }
-
-  totalElement.textContent = `Total del pedido: $ ${total.toFixed(2)}`;
-}
-
-
 orderForm.addEventListener('submit', async event => {
   event.preventDefault();
 
   if (sending) return;
 
   const customer = document.querySelector('#customer').value.trim();
+  const orderDate = document.querySelector('#orderDate').value;
   const notes = document.querySelector('#notes').value.trim();
 
   const items = products
@@ -163,7 +157,13 @@ orderForm.addEventListener('submit', async event => {
     }));
 
   if (!customer) {
-    msg.textContent = 'Ingresá tu nombre.';
+    msg.textContent = 'Ingresá el nombre del solicitante.';
+    msg.className = 'error';
+    return;
+  }
+
+  if (!orderDate) {
+    msg.textContent = 'Seleccioná la fecha del pedido.';
     msg.className = 'error';
     return;
   }
@@ -174,7 +174,7 @@ orderForm.addEventListener('submit', async event => {
     return;
   }
 
-  // Abrimos WhatsApp durante el clic para evitar bloqueos del navegador.
+  // Abrimos WhatsApp durante el clic para evitar bloqueos.
   const whatsappWindow = window.open('about:blank', '_blank');
 
   sending = true;
@@ -198,6 +198,7 @@ orderForm.addEventListener('submit', async event => {
       },
       body: JSON.stringify({
         customer,
+        order_date: orderDate,
         notes,
         items
       })
@@ -236,7 +237,7 @@ orderForm.addEventListener('submit', async event => {
       throw new Error('El servidor devolvió un PDF vacío.');
     }
 
-    // Descargar el comprobante PDF.
+    // Descargar el PDF.
     const pdfUrl = URL.createObjectURL(pdfBlob);
 
     const downloadLink = document.createElement('a');
@@ -251,7 +252,7 @@ orderForm.addEventListener('submit', async event => {
       URL.revokeObjectURL(pdfUrl);
     }, 60000);
 
-    // Abrir WhatsApp con el mensaje preparado.
+    // Preparar WhatsApp.
     const message =
       `Hola, recibimos el pedido #${orderId} de ${customer}. ` +
       'Adjunto el PDF con el detalle del pedido.';
@@ -267,7 +268,7 @@ orderForm.addEventListener('submit', async event => {
 
     msg.textContent =
       `¡Pedido #${orderId} guardado correctamente! ` +
-      'Se descargó el PDF. Adjuntalo en WhatsApp para enviarlo al negocio.';
+      'Se descargó el PDF. Adjuntalo en WhatsApp para enviarlo.';
 
     msg.className = 'success';
 
