@@ -52,6 +52,125 @@ async function apiFetch(url, options = {}) {
   return data;
 }
 
+// -------------------- COMPARTIR / DESCARGAR PDF --------------------
+
+function mostrarOpcionesPdf(pdfBlob, orderId) {
+  const filename = `pedido_${orderId}.pdf`;
+
+  const file = typeof File === 'function'
+    ? new File([pdfBlob], filename, { type: 'application/pdf' })
+    : null;
+
+  const dialog = document.createElement('dialog');
+
+  dialog.style.cssText =
+    'border:1px solid #ddd;border-radius:14px;padding:22px;' +
+    'width:min(92vw,420px);max-width:420px;box-sizing:border-box;';
+
+  const title = document.createElement('h3');
+  title.textContent = `Pedido #${orderId}`;
+  title.style.margin = '0 0 8px';
+
+  const description = document.createElement('p');
+  description.textContent = '¿Qué querés hacer con el PDF?';
+
+  const actions = document.createElement('div');
+
+  actions.style.cssText =
+    'display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;';
+
+  const downloadButton = document.createElement('button');
+  downloadButton.type = 'button';
+  downloadButton.className = 'primary';
+  downloadButton.textContent = 'Descargar PDF';
+
+  const shareButton = document.createElement('button');
+  shareButton.type = 'button';
+  shareButton.className = 'secondary';
+  shareButton.textContent = 'Compartir';
+
+  const closeButton = document.createElement('button');
+  closeButton.type = 'button';
+  closeButton.className = 'secondary';
+  closeButton.textContent = 'Cancelar';
+
+  const notice = document.createElement('p');
+  notice.style.cssText = 'font-size:13px;margin-top:12px;';
+
+  let shareSupported =
+    Boolean(file) && typeof navigator.share === 'function';
+
+  if (shareSupported && typeof navigator.canShare === 'function') {
+    try {
+      shareSupported = navigator.canShare({ files: [file] });
+    } catch {
+      shareSupported = false;
+    }
+  }
+
+  if (!shareSupported) {
+    shareButton.disabled = true;
+
+    notice.textContent =
+      'Compartir archivos no está disponible en este navegador. ' +
+      'Podés descargar el PDF y compartirlo manualmente.';
+  }
+
+  function closeDialog() {
+    dialog.close();
+    dialog.remove();
+  }
+
+  downloadButton.addEventListener('click', () => {
+    const url = URL.createObjectURL(pdfBlob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    closeDialog();
+  });
+
+  shareButton.addEventListener('click', async () => {
+    if (!shareSupported) return;
+
+    try {
+      await navigator.share({
+        files: [file],
+        title: `Pedido #${orderId}`
+      });
+
+      closeDialog();
+
+    } catch (error) {
+      if (error?.name !== 'AbortError') {
+        console.error('No se pudo compartir el PDF:', error);
+
+        notice.textContent =
+          'No se pudo compartir. Podés intentar de nuevo o descargar el PDF.';
+      }
+    }
+  });
+
+  closeButton.addEventListener('click', closeDialog);
+
+  dialog.addEventListener('cancel', event => {
+    event.preventDefault();
+    closeDialog();
+  });
+
+  actions.append(downloadButton, shareButton, closeButton);
+  dialog.append(title, description, actions, notice);
+
+  document.body.appendChild(dialog);
+  dialog.showModal();
+}
+
 // -------------------- PESTAÑAS --------------------
 
 function showCategoriesTab() {
@@ -65,6 +184,7 @@ function showCategoriesTab() {
 
   document.querySelectorAll('.admin-tab').forEach(button => {
     const active = button === tab;
+
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
@@ -104,6 +224,7 @@ async function loadOrders() {
           Pedido #${escapeHtml(order.id)} ·
           ${escapeHtml(order.customer)}
         </div>
+
         <div class="order-time">
           Fecha solicitada:
           ${escapeHtml(order.order_date || 'No indicada')}<br>
@@ -125,9 +246,11 @@ async function loadOrders() {
         option.value = status;
         option.textContent = status;
         option.selected = order.status === status;
+
         statusSelect.append(option);
       });
 
+      // Conservar visualmente los estados históricos.
       if (order.status && !statuses.includes(order.status)) {
         const oldOption = document.createElement('option');
         oldOption.value = '';
@@ -135,6 +258,7 @@ async function loadOrders() {
           'Estado anterior: ' + order.status;
         oldOption.disabled = true;
         oldOption.selected = true;
+
         statusSelect.append(oldOption);
       }
 
@@ -151,9 +275,11 @@ async function loadOrders() {
               status: statusSelect.value
             })
           });
+
         } catch (error) {
           alert(error.message || 'No se pudo actualizar el pedido.');
           await loadOrders();
+
         } finally {
           statusSelect.disabled = false;
         }
@@ -195,22 +321,13 @@ async function loadOrders() {
 
       bottom.append(count);
 
-      // EXPORTAR PDF SIN SALIR DE ADMINISTRACIÓN
+      // EXPORTAR Y COMPARTIR PDF
       const pdfButton = document.createElement('button');
       pdfButton.type = 'button';
       pdfButton.className = 'secondary';
       pdfButton.textContent = 'Exportar PDF';
 
       pdfButton.addEventListener('click', async () => {
-        const descargar = window.confirm(
-          `Pedido #${order.id}\n\n¿Deseás descargar el PDF?`
-        );
-
-        // Si cancela, permanece en Administración.
-        if (!descargar) {
-          return;
-        }
-
         pdfButton.disabled = true;
 
         try {
@@ -221,8 +338,9 @@ async function loadOrders() {
 
           if (!response.ok) {
             const error = await readResponse(response);
+
             throw new Error(
-              error.error || 'No se pudo descargar el PDF.'
+              error.error || 'No se pudo obtener el PDF.'
             );
           }
 
@@ -232,24 +350,12 @@ async function loadOrders() {
             throw new Error('El PDF está vacío.');
           }
 
-          const url = URL.createObjectURL(pdf);
-
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `pedido_${order.id}.pdf`;
-
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-
-          // Liberar memoria sin cambiar de página.
-          setTimeout(() => {
-            URL.revokeObjectURL(url);
-          }, 60000);
+          mostrarOpcionesPdf(pdf, order.id);
 
         } catch (error) {
-          console.error('Error descargando PDF:', error);
-          alert(error.message || 'No se pudo descargar el PDF.');
+          console.error('Error obteniendo PDF:', error);
+          alert(error.message || 'No se pudo obtener el PDF.');
+
         } finally {
           pdfButton.disabled = false;
         }
@@ -257,24 +363,24 @@ async function loadOrders() {
 
       bottom.append(pdfButton);
       card.append(bottom);
-
       ordersEl.append(card);
     });
 
   } catch (error) {
     console.error('Error cargando pedidos:', error);
+
     ordersEl.innerHTML =
       '<div class="empty">No se pudieron cargar los pedidos.</div>';
   }
 }
 
-// -------------------- CATEGORÍAS --------------------
+// -------------------- PROVEEDORES --------------------
 
 async function fetchCategories() {
   const categories = await apiFetch('/api/categories');
 
   if (!Array.isArray(categories)) {
-    throw new Error('La respuesta de categorías no es válida.');
+    throw new Error('La respuesta de proveedores no es válida.');
   }
 
   return categories;
@@ -300,12 +406,14 @@ async function loadCategories(selectedName = '') {
 
       categories.forEach(category => {
         const name = getCategoryName(category);
+
         if (!name) return;
 
         const option = document.createElement('option');
         option.value = name;
         option.textContent = name;
         option.selected = name === selectedName;
+
         categorySelect.append(option);
       });
     }
@@ -317,7 +425,7 @@ async function loadCategories(selectedName = '') {
     }
 
   } catch (error) {
-    console.error('Error cargando categorías:', error);
+    console.error('Error cargando proveedores:', error);
 
     if (categoryMsg) {
       categoryMsg.textContent =
@@ -372,7 +480,9 @@ async function renderCategories(categories) {
         empty.className = 'muted';
         empty.textContent =
           'Este proveedor todavía no tiene productos.';
+
         content.append(empty);
+
       } else {
         matchingProducts.forEach(product => {
           const row = document.createElement('div');
@@ -443,7 +553,6 @@ async function loadProducts() {
     ]);
 
     productsEl.innerHTML = '';
-
     const groups = {};
 
     categories.forEach(category => {
@@ -454,7 +563,10 @@ async function loadProducts() {
     products.forEach(product => {
       const category = product.category || 'Sin categoría';
 
-      if (!groups[category]) groups[category] = [];
+      if (!groups[category]) {
+        groups[category] = [];
+      }
+
       groups[category].push(product);
     });
 
@@ -484,6 +596,7 @@ async function loadProducts() {
         empty.className = 'muted';
         empty.textContent =
           'Todavía no hay productos en este proveedor.';
+
         details.append(empty);
       }
 
@@ -527,6 +640,7 @@ async function loadProducts() {
 
   } catch (error) {
     console.error('Error cargando productos:', error);
+
     productsEl.innerHTML =
       '<div class="empty">No se pudieron cargar los productos.</div>';
   }
@@ -553,7 +667,9 @@ if (categoryForm) {
       'button[type="submit"], input[type="submit"]'
     );
 
-    if (submitButton) submitButton.disabled = true;
+    if (submitButton) {
+      submitButton.disabled = true;
+    }
 
     if (categoryMsg) {
       categoryMsg.textContent = 'Creando proveedor...';
@@ -591,7 +707,9 @@ if (categoryForm) {
       console.error('Error al crear proveedor:', error);
 
     } finally {
-      if (submitButton) submitButton.disabled = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+      }
     }
   });
 }
@@ -616,8 +734,7 @@ if (productForm) {
 
     if (!body.category || !body.name) {
       if (productMsg) {
-        productMsg.textContent =
-          'Completá proveedor y producto.';
+        productMsg.textContent = 'Completá proveedor y producto.';
         productMsg.className = 'error';
       }
       return;
@@ -627,7 +744,9 @@ if (productForm) {
       'button[type="submit"], input[type="submit"]'
     );
 
-    if (submitButton) submitButton.disabled = true;
+    if (submitButton) {
+      submitButton.disabled = true;
+    }
 
     try {
       await apiFetch('/api/products', {
@@ -658,7 +777,9 @@ if (productForm) {
       console.error('Error agregando producto:', error);
 
     } finally {
-      if (submitButton) submitButton.disabled = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+      }
     }
   });
 }
