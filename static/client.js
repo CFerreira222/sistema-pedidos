@@ -3,12 +3,11 @@ const catalog = document.querySelector('#catalog');
 const msg = document.querySelector('#message');
 const orderForm = document.querySelector('#orderForm');
 
-const WHATSAPP_NUMBER = '59892310415';
-
 let products = [];
 let quantities = {};
 let sending = false;
 
+// CARGAR PRODUCTOS
 async function load() {
   try {
     msg.textContent = 'Cargando productos...';
@@ -39,15 +38,16 @@ async function load() {
 
   } catch (error) {
     console.error('Error cargando productos:', error);
-    msg.textContent = 'No se pudo cargar el catálogo: ' + error.message;
+    msg.textContent =
+      'No se pudo cargar el catálogo: ' + error.message;
     msg.className = 'error';
   }
 }
 
-
+// MOSTRAR PRODUCTOS AGRUPADOS POR PROVEEDOR
 function render() {
-  // Guardar qué proveedores estaban desplegados.
-  const alreadyRendered = catalog.querySelector('details.category') !== null;
+  const alreadyRendered =
+    catalog.querySelector('details.category') !== null;
 
   const openCategories = new Set(
     [...catalog.querySelectorAll('details.category[open]')]
@@ -59,7 +59,7 @@ function render() {
   const groups = {};
 
   products.forEach(product => {
-    const category = product.category || 'Sin categoría';
+    const category = product.category || 'Sin proveedor';
 
     if (!groups[category]) {
       groups[category] = [];
@@ -68,80 +68,86 @@ function render() {
     groups[category].push(product);
   });
 
-  Object.entries(groups).forEach(([category, groupProducts], index) => {
-    const section = document.createElement('details');
-    section.className = 'category';
-    section.dataset.category = category;
+  Object.entries(groups).forEach(
+    ([category, groupProducts], index) => {
 
-    // Mantener el desplegable abierto al cambiar cantidades.
-    section.open = alreadyRendered
-      ? openCategories.has(category)
-      : index === 0;
+      const section = document.createElement('details');
+      section.className = 'category';
+      section.dataset.category = category;
 
-    const summary = document.createElement('summary');
-    summary.textContent = category;
-    summary.style.cursor = 'pointer';
-    summary.style.fontWeight = '700';
-    summary.style.padding = '12px 0';
+      section.open = alreadyRendered
+        ? openCategories.has(category)
+        : index === 0;
 
-    section.appendChild(summary);
+      const summary = document.createElement('summary');
+      summary.textContent = category;
+      summary.style.cursor = 'pointer';
+      summary.style.fontWeight = '700';
+      summary.style.padding = '12px 0';
 
-    groupProducts.forEach(product => {
-      const quantity = quantities[product.id] || 0;
+      section.appendChild(summary);
 
-      const row = document.createElement('div');
-      row.className = 'product';
+      groupProducts.forEach(product => {
+        const quantity = quantities[product.id] || 0;
 
-      const info = document.createElement('div');
+        const row = document.createElement('div');
+        row.className = 'product';
 
-      const name = document.createElement('div');
-      name.className = 'product-name';
-      name.textContent = product.name;
+        const info = document.createElement('div');
 
-      info.append(name);
+        const name = document.createElement('div');
+        name.className = 'product-name';
+        name.textContent = product.name;
 
-      const controls = document.createElement('div');
-      controls.className = 'qty';
+        info.appendChild(name);
 
-      const removeButton = document.createElement('button');
-      removeButton.type = 'button';
-      removeButton.textContent = '−';
-      removeButton.disabled = quantity === 0;
+        const controls = document.createElement('div');
+        controls.className = 'qty';
 
-      removeButton.addEventListener('click', () => {
-        setQty(product.id, Math.max(0, quantity - 1));
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.textContent = '−';
+        removeButton.disabled = quantity === 0;
+
+        removeButton.addEventListener('click', () => {
+          setQty(product.id, Math.max(0, quantity - 1));
+        });
+
+        const quantityLabel = document.createElement('span');
+        quantityLabel.textContent = quantity;
+
+        const addButton = document.createElement('button');
+        addButton.type = 'button';
+        addButton.textContent = '+';
+        addButton.disabled = quantity >= 99;
+
+        addButton.addEventListener('click', () => {
+          setQty(product.id, Math.min(99, quantity + 1));
+        });
+
+        controls.append(
+          removeButton,
+          quantityLabel,
+          addButton
+        );
+
+        row.append(info, controls);
+        section.appendChild(row);
       });
 
-      const quantityLabel = document.createElement('span');
-      quantityLabel.textContent = quantity;
-
-      const addButton = document.createElement('button');
-      addButton.type = 'button';
-      addButton.textContent = '+';
-      addButton.disabled = quantity >= 99;
-
-      addButton.addEventListener('click', () => {
-        setQty(product.id, Math.min(99, quantity + 1));
-      });
-
-      controls.append(removeButton, quantityLabel, addButton);
-      row.append(info, controls);
-      section.appendChild(row);
-    });
-
-    catalog.appendChild(section);
-  });
+      catalog.appendChild(section);
+    }
+  );
 }
 
-
+// CAMBIAR CANTIDAD SIN CERRAR EL PROVEEDOR
 function setQty(id, quantity) {
   quantities[id] = quantity;
   render();
 }
 
-
-
-orderForm.addEventListener('submit', async (event) => {
+// ENVIAR PEDIDO Y OFRECER DESCARGA DEL PDF
+orderForm.addEventListener('submit', async event => {
   event.preventDefault();
 
   if (sending) return;
@@ -155,14 +161,14 @@ orderForm.addEventListener('submit', async (event) => {
   const notes =
     document.querySelector('#notes')?.value.trim() || '';
 
-  const items = Object.entries(quantities)
-    .map(([id, quantity]) => ({
-      product_id: Number(id),
-      quantity: Number(quantity)
-    }))
-    .filter(item => item.quantity > 0);
+  const items = products
+    .filter(product => (quantities[product.id] || 0) > 0)
+    .map(product => ({
+      product_id: product.id,
+      quantity: quantities[product.id]
+    }));
 
-  if (!customer || !orderDate || !items.length) {
+  if (!customer || !orderDate || items.length === 0) {
     msg.textContent =
       'Completá solicitante, fecha y al menos un producto.';
     msg.className = 'error';
@@ -173,113 +179,6 @@ orderForm.addEventListener('submit', async (event) => {
     orderForm.querySelector('button[type="submit"]');
 
   sending = true;
-
-  if (submitButton) submitButton.disabled = true;
-
-  msg.textContent = 'Enviando pedido...';
-  msg.className = '';
-
-  try {
-    const response = await fetch('/api/orders', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        customer,
-        order_date: orderDate,
-        notes,
-        items
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(
-        error.error || 'No se pudo enviar el pedido.'
-      );
-    }
-
-    const orderId = response.headers.get('X-Order-ID');
-    const pdf = await response.blob();
-
-    const descargar = window.confirm(
-      `Pedido #${orderId || ''} enviado correctamente.\n\n` +
-      '¿Deseás descargar el PDF?'
-    );
-
-    if (descargar) {
-      const url = URL.createObjectURL(pdf);
-
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `pedido_${orderId || 'nuevo'}.pdf`;
-
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-        window.location.assign('/');
-      }, 1000);
-
-    } else {
-      window.location.assign('/');
-    }
-
-  } catch (error) {
-    msg.textContent =
-      error.message || 'Error al enviar el pedido.';
-
-    msg.className = 'error';
-    sending = false;
-
-    if (submitButton) submitButton.disabled = false;
-  }
-});
- async event => {
-  event.preventDefault();
-
-  if (sending) return;
-
-  const customer = document.querySelector('#customer').value.trim();
-  const orderDate = document.querySelector('#orderDate').value;
-  const notes = document.querySelector('#notes').value.trim();
-
-  const items = products
-    .filter(product => (quantities[product.id] || 0) > 0)
-    .map(product => ({
-      product_id: product.id,
-      quantity: quantities[product.id]
-    }));
-
-  if (!customer) {
-    msg.textContent = 'Ingresá el nombre del solicitante.';
-    msg.className = 'error';
-    return;
-  }
-
-  if (!orderDate) {
-    msg.textContent = 'Seleccioná la fecha del pedido.';
-    msg.className = 'error';
-    return;
-  }
-
-  if (items.length === 0) {
-    msg.textContent = 'Seleccioná al menos un producto.';
-    msg.className = 'error';
-    return;
-  }
-
-  // Abrimos WhatsApp durante el clic para evitar bloqueos.
-  const whatsappWindow = window.open('about:blank', '_blank');
-
-  sending = true;
-
-  const submitButton = orderForm.querySelector(
-    'button[type="submit"], input[type="submit"]'
-  );
 
   if (submitButton) {
     submitButton.disabled = true;
@@ -303,88 +202,52 @@ orderForm.addEventListener('submit', async (event) => {
     });
 
     if (!response.ok) {
-      let errorMessage = 'No se pudo enviar el pedido.';
+      const errorData = await response.json()
+        .catch(() => ({}));
 
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorMessage;
-      } catch (_) {
-        // La respuesta no contenía JSON.
-      }
-
-      throw new Error(errorMessage);
-    }
-
-    const contentType = response.headers.get('Content-Type') || '';
-
-    if (!contentType.includes('application/pdf')) {
       throw new Error(
-        'El servidor no devolvió un PDF. Revisá la ruta POST /api/orders.'
+        errorData.error || 'No se pudo enviar el pedido.'
       );
     }
 
-    const orderId = response.headers.get('X-Order-ID');
-
-    if (!orderId) {
-      throw new Error('No se recibió el número del pedido.');
-    }
+    const orderId =
+      response.headers.get('X-Order-ID');
 
     const pdfBlob = await response.blob();
 
-    if (!pdfBlob.size) {
-      throw new Error('El servidor devolvió un PDF vacío.');
-    }
+    const descargar = window.confirm(
+      `Pedido #${orderId || ''} guardado correctamente.\n\n` +
+      '¿Deseás descargar el PDF?'
+    );
 
-    // Descargar el PDF.
-    const pdfUrl = URL.createObjectURL(pdfBlob);
+    if (descargar) {
+      const url = URL.createObjectURL(pdfBlob);
 
-    const downloadLink = document.createElement('a');
-    downloadLink.href = pdfUrl;
-    downloadLink.download = `pedido_${orderId}.pdf`;
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `pedido_${orderId || 'nuevo'}.pdf`;
 
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    downloadLink.remove();
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
 
-    setTimeout(() => {
-      URL.revokeObjectURL(pdfUrl);
-    }, 60000);
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        window.location.assign('/');
+      }, 1500);
 
-    // Preparar WhatsApp.
-    const message =
-      `Hola, recibimos el pedido #${orderId} de ${customer}. ` +
-      'Adjunto el PDF con el detalle del pedido.';
-
-    const whatsappUrl =
-      `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
-
-    if (whatsappWindow && !whatsappWindow.closed) {
-      whatsappWindow.location.href = whatsappUrl;
     } else {
-      window.location.href = whatsappUrl;
+      window.location.assign('/');
     }
-
-    msg.textContent =
-      `¡Pedido #${orderId} guardado correctamente! ` +
-      'Se descargó el PDF. Adjuntalo en WhatsApp para enviarlo.';
-
-    msg.className = 'success';
-
-    quantities = {};
-    orderForm.reset();
-    render();
 
   } catch (error) {
-    if (whatsappWindow && !whatsappWindow.closed) {
-      whatsappWindow.close();
-    }
-
     console.error('Error enviando pedido:', error);
 
-    msg.textContent = error.message;
+    msg.textContent =
+      error.message || 'Error al enviar el pedido.';
+
     msg.className = 'error';
 
-  } finally {
     sending = false;
 
     if (submitButton) {
@@ -393,5 +256,5 @@ orderForm.addEventListener('submit', async (event) => {
   }
 });
 
-
+// INICIAR LA CARGA DEL CATÁLOGO
 load();
