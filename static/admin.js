@@ -58,6 +58,7 @@ function showCategoriesTab() {
   const tab = document.querySelector(
     '.admin-tab[data-tab="categories-section"]'
   );
+
   const panel = document.getElementById('categories-section');
 
   if (!tab || !panel) return;
@@ -69,7 +70,7 @@ function showCategoriesTab() {
   });
 
   document.querySelectorAll('.admin-section').forEach(section => {
-    section.hidden = section === panel ? false : true;
+    section.hidden = section !== panel;
   });
 }
 
@@ -97,13 +98,15 @@ async function loadOrders() {
       top.className = 'order-top';
 
       const meta = document.createElement('div');
+
       meta.innerHTML = `
         <div class="order-id">
           Pedido #${escapeHtml(order.id)} ·
           ${escapeHtml(order.customer)}
         </div>
         <div class="order-time">
-          Fecha solicitada: ${escapeHtml(order.order_date || 'No indicada')}<br>
+          Fecha solicitada:
+          ${escapeHtml(order.order_date || 'No indicada')}<br>
           Registrado: ${escapeHtml(order.created_at)}
         </div>
       `;
@@ -124,6 +127,16 @@ async function loadOrders() {
         option.selected = order.status === status;
         statusSelect.append(option);
       });
+
+      if (order.status && !statuses.includes(order.status)) {
+        const oldOption = document.createElement('option');
+        oldOption.value = '';
+        oldOption.textContent =
+          'Estado anterior: ' + order.status;
+        oldOption.disabled = true;
+        oldOption.selected = true;
+        statusSelect.append(oldOption);
+      }
 
       statusSelect.addEventListener('change', async () => {
         statusSelect.disabled = true;
@@ -180,64 +193,70 @@ async function loadOrders() {
       count.textContent =
         `${(order.items || []).length} línea(s) de productos`;
 
-      
-bottom.append(count);
+      bottom.append(count);
 
-const pdfButton = document.createElement('button');
-pdfButton.type = 'button';
-pdfButton.className = 'secondary';
-pdfButton.textContent = 'Exportar PDF';
+      // EXPORTAR PDF SIN SALIR DE ADMINISTRACIÓN
+      const pdfButton = document.createElement('button');
+      pdfButton.type = 'button';
+      pdfButton.className = 'secondary';
+      pdfButton.textContent = 'Exportar PDF';
 
-pdfButton.addEventListener('click', async () => {
-  const descargar = confirm(
-    `Pedido #${order.id}\n\n¿Deseás descargar el PDF?`
-  );
+      pdfButton.addEventListener('click', async () => {
+        const descargar = window.confirm(
+          `Pedido #${order.id}\n\n¿Deseás descargar el PDF?`
+        );
 
-  if (!descargar) {
-    window.location.assign('/');
-    return;
-  }
+        // Si cancela, permanece en Administración.
+        if (!descargar) {
+          return;
+        }
 
-  pdfButton.disabled = true;
+        pdfButton.disabled = true;
 
-  try {
-    const response = await fetch(
-      `/api/orders/${order.id}/pdf`
-    );
+        try {
+          const response = await fetch(
+            `/api/orders/${order.id}/pdf`,
+            { cache: 'no-store' }
+          );
 
-    if (!response.ok) {
-      const error = await readResponse(response);
+          if (!response.ok) {
+            const error = await readResponse(response);
+            throw new Error(
+              error.error || 'No se pudo descargar el PDF.'
+            );
+          }
 
-      throw new Error(
-        error.error || 'No se pudo descargar el PDF.'
-      );
-    }
+          const pdf = await response.blob();
 
-    const pdf = await response.blob();
-    const url = URL.createObjectURL(pdf);
+          if (!pdf.size) {
+            throw new Error('El PDF está vacío.');
+          }
 
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `pedido_${order.id}.pdf`;
+          const url = URL.createObjectURL(pdf);
 
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `pedido_${order.id}.pdf`;
 
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-      window.location.assign('/');
-    }, 1000);
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
 
-  } catch (error) {
-    alert(error.message || 'Error al descargar el PDF.');
-    pdfButton.disabled = false;
-  }
-});
+          // Liberar memoria sin cambiar de página.
+          setTimeout(() => {
+            URL.revokeObjectURL(url);
+          }, 60000);
 
-bottom.append(pdfButton);
-card.append(bottom);
+        } catch (error) {
+          console.error('Error descargando PDF:', error);
+          alert(error.message || 'No se pudo descargar el PDF.');
+        } finally {
+          pdfButton.disabled = false;
+        }
+      });
 
+      bottom.append(pdfButton);
+      card.append(bottom);
 
       ordersEl.append(card);
     });
@@ -302,7 +321,7 @@ async function loadCategories(selectedName = '') {
 
     if (categoryMsg) {
       categoryMsg.textContent =
-        error.message || 'No se pudieron cargar las categorías.';
+        error.message || 'No se pudieron cargar los proveedores.';
       categoryMsg.className = 'error';
     }
   }
@@ -312,12 +331,11 @@ async function renderCategories(categories) {
   if (!categoriesList) return;
 
   const products = await fetchProducts();
-
   categoriesList.innerHTML = '';
 
   if (!categories.length) {
     categoriesList.innerHTML =
-      '<div class="empty">Todavía no hay categorías.</div>';
+      '<div class="empty">Todavía no hay proveedores.</div>';
     return;
   }
 
@@ -327,6 +345,7 @@ async function renderCategories(categories) {
     )
     .forEach(category => {
       const name = getCategoryName(category);
+
       const id = typeof category === 'object'
         ? category.id
         : null;
@@ -352,7 +371,7 @@ async function renderCategories(categories) {
         const empty = document.createElement('p');
         empty.className = 'muted';
         empty.textContent =
-          'Esta categoría todavía no tiene productos.';
+          'Este proveedor todavía no tiene productos.';
         content.append(empty);
       } else {
         matchingProducts.forEach(product => {
@@ -473,7 +492,8 @@ async function loadProducts() {
         row.className = 'product-row';
 
         const info = document.createElement('span');
-        info.innerHTML = `<strong>${escapeHtml(product.name)}</strong>`;
+        info.innerHTML =
+          `<strong>${escapeHtml(product.name)}</strong>`;
 
         const remove = document.createElement('button');
         remove.className = 'remove';
@@ -512,7 +532,7 @@ async function loadProducts() {
   }
 }
 
-// -------------------- CREAR CATEGORÍA --------------------
+// -------------------- CREAR PROVEEDOR --------------------
 
 if (categoryForm) {
   categoryForm.addEventListener('submit', async event => {
