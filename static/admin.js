@@ -181,18 +181,100 @@ function showCategoriesTab() {
 
 // -------------------- PEDIDOS --------------------
 
-async function loadOrders() {
-  if (!ordersEl) return;
+const pendingOnly = document.querySelector('#pending-only');
+const pendingProvider = document.querySelector('#pending-provider');
+const receiptDialog = document.querySelector('#receipt-dialog');
+const receiptQuantity = document.querySelector('#receipt-quantity');
+const receiptMessage = document.querySelector('#receipt-message');
+let activeReceipt = null;
+let loadingSequence = 0;
+let savingReceipt = false;
+let lastView = '';
 
+async function saveReceipt(order, changes) {
+  savingReceipt = true;
+  loadingSequence++;
   try {
-    const orders = await apiFetch('/api/orders');
+    await apiFetch('/api/orders/' + order.id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...changes, receipt_version: order.receipt_version })
+    });
+    receiptMessage.textContent = 'Pedido #' + order.id + ' actualizado.';
+  } catch (error) {
+    receiptMessage.textContent = error.message || 'No se pudo actualizar el pedido.';
+  } finally {
+    savingReceipt = false;
+    lastView = '';
+    await loadOrders();
+  }
+}
 
-    if (!Array.isArray(orders) || orders.length === 0) {
-      ordersEl.innerHTML =
-        '<div class="empty">Todavía no hay pedidos.</div>';
+function editReceipt(order, item) {
+  activeReceipt = { order, item };
+  document.querySelector('#receipt-description').textContent =
+    'Pedido #' + order.id + ' · ' + item.name + ' · ' + item.quantity + ' unidades pedidas.';
+  receiptQuantity.max = item.quantity;
+  receiptQuantity.value = item.received;
+  receiptDialog.showModal();
+  receiptQuantity.focus();
+  receiptQuantity.select();
+}
+
+document.querySelector('#receipt-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!activeReceipt || savingReceipt) return;
+  const { order, item } = activeReceipt;
+  const received = receiptQuantity.valueAsNumber;
+  receiptDialog.close();
+  await saveReceipt(order, { line_id: item.id, received });
+});
+document.querySelector('#receipt-cancel').addEventListener('click', () => receiptDialog.close());
+receiptDialog.addEventListener('close', () => { activeReceipt = null; });
+
+function refreshProviderOptions(orders) {
+  const selected = pendingProvider.value;
+  const names = new Set(orders.flatMap(order => order.items.map(item => item.provider)));
+  // Conservar la selección si se acaba de completar su último pendiente.
+  if (selected && selected !== '*') names.add(JSON.parse(selected));
+  const options = [new Option('Todos', '*')];
+  for (const name of [...names].sort((a, b) => a.localeCompare(b, 'es'))) {
+    options.push(new Option(name || 'Proveedor desconocido', JSON.stringify(name)));
+  }
+  pendingProvider.replaceChildren(...options);
+  pendingProvider.value = selected || '*';
+}
+
+pendingOnly.addEventListener('change', () => {
+  pendingProvider.disabled = !pendingOnly.checked;
+  loadOrders();
+});
+pendingProvider.addEventListener('change', loadOrders);
+
+async function loadOrders() {
+  if (!ordersEl || receiptDialog.open || savingReceipt) return;
+  const seq = ++loadingSequence;
+  const pending = pendingOnly.checked;
+  try {
+    let orders = await apiFetch(pending ? '/api/orders?pending=1' : '/api/orders');
+    if (seq !== loadingSequence || receiptDialog.open || savingReceipt) return;
+    if (!Array.isArray(orders)) throw new Error('Respuesta de pedidos no válida.');
+    const view = JSON.stringify([pending, pendingProvider.value, orders]);
+    if (view === lastView) return;
+    if (pending) {
+      refreshProviderOptions(orders);
+      if (pendingProvider.value !== '*') {
+        const provider = JSON.parse(pendingProvider.value);
+        orders = orders.map(order => ({
+          ...order, items: order.items.filter(item => item.provider === provider)
+        })).filter(order => order.items.length);
+      }
+    }
+    lastView = view;
+    if (!orders.length) {
+      ordersEl.textContent = pending ? 'No hay entregas pendientes para este filtro.' : 'Todavía no hay pedidos.';
       return;
     }
-
     ordersEl.innerHTML = '';
 
     orders.forEach(order => {
@@ -235,31 +317,30 @@ async function loadOrders() {
       if (order.status && !statuses.includes(order.status)) {
         const oldOption = document.createElement('option');
         oldOption.value = '';
-        oldOption.textContent = 'Estado anterior: ' + order.status;
+        oldOption.textContent = order.status === 'Parcial' ? 'Parcial' : 'Estado anterior: ' + order.status;
         oldOption.disabled = true;
         oldOption.selected = true;
         statusSelect.append(oldOption);
       }
 
+      const displayedStatus = statusSelect.value;
       statusSelect.addEventListener('change', async () => {
-        statusSelect.disabled = true;
-
-        try {
-          await apiFetch('/api/orders/' + order.id, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              status: statusSelect.value
-            })
-          });
-        } catch (error) {
-          alert(error.message || 'No se pudo actualizar el pedido.');
-          await loadOrders();
-        } finally {
-          statusSelect.disabled = false;
+        if (savingReceipt) {
+          statusSelect.value = displayedStatus;
+          return;
         }
+        const next = statusSelect.value;
+        if (next === 'Recibido' || order.status === 'Recibido') {
+          const warning = next === 'Recibido'
+            ? '¿Marcar como recibidas todas las unidades del pedido completo?'
+            : '¿Reabrir el pedido completo y poner en cero todas sus cantidades recibidas?';
+          if (!window.confirm(warning)) {
+            statusSelect.value = displayedStatus;
+            return;
+          }
+        }
+        statusSelect.disabled = true;
+        await saveReceipt(order, { status: next });
       });
 
       top.append(meta, statusSelect);
@@ -271,11 +352,25 @@ async function loadOrders() {
       (order.items || []).forEach(item => {
         const li = document.createElement('li');
 
-        const quantity = document.createElement('span');
-        quantity.textContent =
-          `${item.quantity} × ${item.name}`;
-
-        li.append(quantity);
+        li.className = 'receipt-line';
+        const info = document.createElement('span');
+        info.className = 'line-info';
+        const name = document.createElement('strong');
+        name.textContent = item.name;
+        const detail = document.createElement('small');
+        detail.textContent = (item.provider || 'Proveedor desconocido') +
+          ' · Pedido: ' + item.quantity + ' · Recibido: ' + item.received +
+          ' · Pendiente: ' + (item.quantity - item.received);
+        info.append(name, detail);
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'secondary';
+        edit.textContent = 'Registrar recepción';
+        edit.setAttribute('aria-label', 'Registrar recepción de ' + item.name);
+        edit.addEventListener('click', () => {
+          if (!savingReceipt) editReceipt(order, item);
+        });
+        li.append(info, edit);
         list.append(li);
       });
 
@@ -294,7 +389,7 @@ async function loadOrders() {
       const count = document.createElement('span');
       count.className = 'muted';
       count.textContent =
-        `${(order.items || []).length} línea(s) de productos`;
+        `${(order.items || []).length} línea(s) visible(s)`;
 
       bottom.append(count);
 
@@ -336,6 +431,8 @@ async function loadOrders() {
     });
 
   } catch (error) {
+    if (seq !== loadingSequence || receiptDialog.open) return;
+    lastView = '';
     console.error('Error cargando pedidos:', error);
     ordersEl.innerHTML =
       '<div class="empty">No se pudieron cargar los pedidos.</div>';
