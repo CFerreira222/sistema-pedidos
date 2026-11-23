@@ -6,15 +6,18 @@ const orderForm = document.querySelector('#orderForm');
 let products = [];
 let quantities = {};
 let sending = false;
+let lastSavedOrder = null;
 
-// -------------------- CARGAR CATÁLOGO --------------------
+// -------------------- CARGAR PRODUCTOS --------------------
 
 async function load() {
   try {
     msg.textContent = 'Cargando productos...';
     msg.className = '';
 
-    const response = await fetch('/api/products', { cache: 'no-store' });
+    const response = await fetch('/api/products', {
+      cache: 'no-store'
+    });
 
     if (!response.ok) {
       throw new Error('No se pudieron cargar los productos.');
@@ -29,12 +32,18 @@ async function load() {
     products = data;
     render();
 
-    msg.textContent = products.length ? '' : 'No hay productos disponibles.';
+    msg.textContent = products.length
+      ? ''
+      : 'No hay productos disponibles.';
+
     msg.className = '';
 
   } catch (error) {
     console.error('Error cargando productos:', error);
-    msg.textContent = 'No se pudo cargar el catálogo: ' + error.message;
+
+    msg.textContent =
+      'No se pudo cargar el catálogo: ' + error.message;
+
     msg.className = 'error';
   }
 }
@@ -51,132 +60,277 @@ function render() {
   );
 
   catalog.innerHTML = '';
+
   const groups = {};
 
   products.forEach(product => {
     const category = product.category || 'Sin proveedor';
 
-    if (!groups[category]) groups[category] = [];
+    if (!groups[category]) {
+      groups[category] = [];
+    }
+
     groups[category].push(product);
   });
 
-  Object.entries(groups).forEach(([category, groupProducts], index) => {
-    const section = document.createElement('details');
-    section.className = 'category';
-    section.dataset.category = category;
+  Object.entries(groups).forEach(
+    ([category, groupProducts], index) => {
 
-    section.open = alreadyRendered
-      ? openCategories.has(category)
-      : index === 0;
+      const section = document.createElement('details');
 
-    const summary = document.createElement('summary');
-    summary.textContent = category;
-    summary.style.cursor = 'pointer';
-    summary.style.fontWeight = '700';
-    summary.style.padding = '12px 0';
+      section.className = 'category';
+      section.dataset.category = category;
 
-    section.appendChild(summary);
+      // La mejora 3 queda pendiente.
+      section.open = alreadyRendered
+        ? openCategories.has(category)
+        : index === 0;
 
-    groupProducts.forEach(product => {
-      const quantity = quantities[product.id] || 0;
+      const summary = document.createElement('summary');
 
-      const row = document.createElement('div');
-      row.className = 'product';
+      summary.textContent = category;
+      summary.style.cursor = 'pointer';
+      summary.style.fontWeight = '700';
+      summary.style.padding = '12px 0';
 
-      const info = document.createElement('div');
-      const name = document.createElement('div');
+      section.appendChild(summary);
 
-      name.className = 'product-name';
-      name.textContent = product.name;
-      info.append(name);
+      groupProducts.forEach(product => {
+        const id = product.id;
+        const quantity = quantities[id] || 0;
 
-      const controls = document.createElement('div');
-      controls.className = 'qty';
+        const row = document.createElement('div');
+        row.className = 'product';
 
-      const removeButton = document.createElement('button');
-      removeButton.type = 'button';
-      removeButton.textContent = '−';
-      removeButton.disabled = quantity === 0;
+        const info = document.createElement('div');
 
-      removeButton.addEventListener('click', () => {
-        setQty(product.id, Math.max(0, quantity - 1));
+        const name = document.createElement('div');
+        name.className = 'product-name';
+        name.textContent = product.name;
+
+        info.append(name);
+
+        const controls = document.createElement('div');
+        controls.className = 'qty';
+
+        // BOTÓN RESTAR
+        const removeButton = document.createElement('button');
+
+        removeButton.type = 'button';
+        removeButton.textContent = '−';
+        removeButton.disabled = sending || quantity === 0;
+
+        removeButton.setAttribute(
+          'aria-label',
+          `Restar ${product.name}`
+        );
+
+        // CAMPO PARA ESCRIBIR LA CANTIDAD
+        const quantityInput = document.createElement('input');
+
+        quantityInput.type = 'number';
+        quantityInput.className = 'qty-input';
+
+        quantityInput.min = '0';
+        quantityInput.max = '99';
+        quantityInput.step = '1';
+        quantityInput.inputMode = 'numeric';
+
+        quantityInput.value = String(quantity);
+        quantityInput.disabled = sending;
+
+        quantityInput.setAttribute(
+          'aria-label',
+          `Cantidad de ${product.name}`
+        );
+
+        quantityInput.style.cssText =
+          'width:64px;min-width:0;text-align:center;' +
+          'padding:6px 3px;box-sizing:border-box;';
+
+        // BOTÓN SUMAR
+        const addButton = document.createElement('button');
+
+        addButton.type = 'button';
+        addButton.textContent = '+';
+        addButton.disabled = sending || quantity >= 99;
+
+        addButton.setAttribute(
+          'aria-label',
+          `Sumar ${product.name}`
+        );
+
+        // ACTUALIZAR BOTONES
+        function updateButtons(value) {
+          removeButton.disabled = sending || value === 0;
+          addButton.disabled = sending || value >= 99;
+        }
+
+        // ESCRIBIR CANTIDAD SIN CERRAR EL PROVEEDOR
+        quantityInput.addEventListener('input', () => {
+          if (sending) return;
+
+          const typed = quantityInput.value;
+
+          if (typed === '') {
+            quantities[id] = 0;
+            updateButtons(0);
+            return;
+          }
+
+          if (!/^\d+$/.test(typed)) {
+            return;
+          }
+
+          const value = Math.min(99, Number(typed));
+
+          quantities[id] = value;
+
+          if (Number(typed) > 99) {
+            quantityInput.value = '99';
+          }
+
+          updateButtons(value);
+        });
+
+        // NORMALIZAR CUANDO TERMINA DE ESCRIBIR
+        quantityInput.addEventListener('change', () => {
+          const value = quantities[id] || 0;
+
+          quantityInput.value = String(value);
+          updateButtons(value);
+        });
+
+        // EVITAR VALORES NO VÁLIDOS
+        quantityInput.addEventListener('keydown', event => {
+          if (
+            ['e', 'E', '+', '-', '.', ','].includes(event.key)
+          ) {
+            event.preventDefault();
+          }
+
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            quantityInput.blur();
+          }
+        });
+
+        // RESTAR
+        removeButton.addEventListener('click', () => {
+          setQty(
+            id,
+            (quantities[id] || 0) - 1
+          );
+        });
+
+        // SUMAR
+        addButton.addEventListener('click', () => {
+          setQty(
+            id,
+            (quantities[id] || 0) + 1
+          );
+        });
+
+        controls.append(
+          removeButton,
+          quantityInput,
+          addButton
+        );
+
+        row.append(info, controls);
+        section.appendChild(row);
       });
 
-      const quantityLabel = document.createElement('span');
-      quantityLabel.textContent = quantity;
-
-      const addButton = document.createElement('button');
-      addButton.type = 'button';
-      addButton.textContent = '+';
-      addButton.disabled = quantity >= 99;
-
-      addButton.addEventListener('click', () => {
-        setQty(product.id, Math.min(99, quantity + 1));
-      });
-
-      controls.append(removeButton, quantityLabel, addButton);
-      row.append(info, controls);
-      section.appendChild(row);
-    });
-
-    catalog.appendChild(section);
-  });
+      catalog.appendChild(section);
+    }
+  );
 }
 
+// -------------------- CAMBIAR CANTIDAD --------------------
+
 function setQty(id, quantity) {
-  quantities[id] = quantity;
+  if (sending) return;
+
+  quantities[id] = Math.max(
+    0,
+    Math.min(99, Math.trunc(quantity))
+  );
+
   render();
 }
 
-// -------------------- OPCIONES DEL PDF --------------------
+// -------------------- DESCARGAR / COMPARTIR PDF --------------------
 
 function mostrarOpcionesPdf(pdfBlob, orderId) {
   const filename = `pedido_${orderId}.pdf`;
 
   const file = typeof File === 'function'
-    ? new File([pdfBlob], filename, { type: 'application/pdf' })
+    ? new File(
+        [pdfBlob],
+        filename,
+        { type: 'application/pdf' }
+      )
     : null;
 
   const dialog = document.createElement('dialog');
+
   dialog.style.cssText =
     'border:1px solid #ddd;border-radius:14px;padding:22px;' +
     'width:min(92vw,420px);max-width:420px;box-sizing:border-box;';
 
   const title = document.createElement('h3');
-  title.textContent = `Pedido #${orderId} enviado correctamente`;
+
+  title.textContent =
+    `Pedido #${orderId} guardado correctamente`;
+
   title.style.margin = '0 0 8px';
 
   const description = document.createElement('p');
-  description.textContent = '¿Qué querés hacer con el PDF?';
+
+  description.textContent =
+    '¿Qué querés hacer con el PDF?';
 
   const actions = document.createElement('div');
+
   actions.style.cssText =
     'display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;';
 
   const downloadButton = document.createElement('button');
+
   downloadButton.type = 'button';
   downloadButton.className = 'primary';
   downloadButton.textContent = 'Descargar PDF';
 
   const shareButton = document.createElement('button');
+
   shareButton.type = 'button';
   shareButton.className = 'secondary';
   shareButton.textContent = 'Compartir';
 
   const closeButton = document.createElement('button');
+
   closeButton.type = 'button';
   closeButton.className = 'secondary';
-  closeButton.textContent = 'No descargar';
+  closeButton.textContent = 'Cerrar';
 
   const notice = document.createElement('p');
-  notice.style.cssText = 'font-size:13px;margin-top:12px;';
+
+  notice.style.cssText =
+    'font-size:13px;margin-top:12px;';
 
   let shareSupported =
-    Boolean(file) && typeof navigator.share === 'function';
+    Boolean(file) &&
+    typeof navigator.share === 'function';
 
-  if (shareSupported && typeof navigator.canShare === 'function') {
+  if (
+    shareSupported &&
+    typeof navigator.canShare === 'function'
+  ) {
     try {
-      shareSupported = navigator.canShare({ files: [file] });
+      shareSupported = navigator.canShare({
+        files: [file]
+      });
+
     } catch {
       shareSupported = false;
     }
@@ -184,21 +338,30 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
 
   if (!shareSupported) {
     shareButton.disabled = true;
+
     notice.textContent =
-      'Compartir archivos no está disponible en este navegador. ' +
-      'Podés descargar el PDF y compartirlo manualmente.';
+      'Este navegador no permite compartir PDFs directamente. ' +
+      'Podés descargarlos y compartirlos manualmente.';
   }
 
-  function finish() {
+  // CERRAR SIN REINICIAR EL FORMULARIO
+  function closeDialog() {
     dialog.close();
     dialog.remove();
-    window.location.assign('/');
+
+    msg.textContent =
+      `Pedido #${orderId} guardado. ` +
+      'Los datos del formulario siguen aquí.';
+
+    msg.className = 'success';
   }
 
+  // DESCARGAR PDF
   downloadButton.addEventListener('click', () => {
     const url = URL.createObjectURL(pdfBlob);
 
     const link = document.createElement('a');
+
     link.href = url;
     link.download = filename;
 
@@ -206,10 +369,14 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
     link.click();
     link.remove();
 
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    setTimeout(finish, 1200);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 60000);
+
+    closeDialog();
   });
 
+  // COMPARTIR PDF
   shareButton.addEventListener('click', async () => {
     if (!shareSupported) return;
 
@@ -219,27 +386,42 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
         title: `Pedido #${orderId}`
       });
 
-      finish();
+      closeDialog();
 
     } catch (error) {
       if (error?.name !== 'AbortError') {
-        console.error('No se pudo compartir el PDF:', error);
+        console.error(
+          'No se pudo compartir el PDF:',
+          error
+        );
 
         notice.textContent =
-          'No se pudo compartir. Podés intentar de nuevo o descargar el PDF.';
+          'No se pudo compartir. ' +
+          'Probá nuevamente o descargá el PDF.';
       }
     }
   });
 
-  closeButton.addEventListener('click', finish);
+  // CERRAR
+  closeButton.addEventListener('click', closeDialog);
 
   dialog.addEventListener('cancel', event => {
     event.preventDefault();
-    finish();
+    closeDialog();
   });
 
-  actions.append(downloadButton, shareButton, closeButton);
-  dialog.append(title, description, actions, notice);
+  actions.append(
+    downloadButton,
+    shareButton,
+    closeButton
+  );
+
+  dialog.append(
+    title,
+    description,
+    actions,
+    notice
+  );
 
   document.body.appendChild(dialog);
   dialog.showModal();
@@ -252,9 +434,14 @@ orderForm.addEventListener('submit', async event => {
 
   if (sending) return;
 
-  const customer = document.querySelector('#customer')?.value.trim() || '';
-  const orderDate = document.querySelector('#orderDate')?.value || '';
-  const notes = document.querySelector('#notes')?.value.trim() || '';
+  const customer =
+    document.querySelector('#customer')?.value.trim() || '';
+
+  const orderDate =
+    document.querySelector('#orderDate')?.value || '';
+
+  const notes =
+    document.querySelector('#notes')?.value.trim() || '';
 
   const items = products
     .filter(product => (quantities[product.id] || 0) > 0)
@@ -266,14 +453,49 @@ orderForm.addEventListener('submit', async event => {
   if (!customer || !orderDate || items.length === 0) {
     msg.textContent =
       'Completá solicitante, fecha y al menos un producto.';
+
     msg.className = 'error';
     return;
   }
 
-  sending = true;
-  let orderSaved = false;
+  // IDENTIFICAR LOS DATOS DEL PEDIDO
+  const signature = JSON.stringify({
+    customer,
+    orderDate,
+    notes,
+    items
+  });
 
-  const submitButton = orderForm.querySelector('button[type="submit"]');
+  // EVITAR DUPLICAR PEDIDOS SIN CAMBIOS
+  if (
+    lastSavedOrder &&
+    signature === lastSavedOrder.signature
+  ) {
+    if (lastSavedOrder.pdfBlob) {
+      mostrarOpcionesPdf(
+        lastSavedOrder.pdfBlob,
+        lastSavedOrder.orderId
+      );
+
+    } else {
+      msg.textContent =
+        `El pedido #${lastSavedOrder.orderId || ''} ` +
+        'ya se guardó, pero hubo un problema con el PDF. ' +
+        'Revisalo en Administración; no lo envíes de nuevo.';
+
+      msg.className = 'error';
+    }
+
+    return;
+  }
+
+  const submitButton =
+    orderForm.querySelector('button[type="submit"]');
+
+  sending = true;
+
+  // IMPEDIR CAMBIOS DURANTE EL ENVÍO
+  render();
 
   if (submitButton) {
     submitButton.disabled = true;
@@ -297,49 +519,61 @@ orderForm.addEventListener('submit', async event => {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const errorData = await response.json()
+        .catch(() => ({}));
 
       throw new Error(
         errorData.error || 'No se pudo enviar el pedido.'
       );
     }
 
-    // El servidor confirmó que el pedido fue guardado.
-    orderSaved = true;
+    const orderId =
+      response.headers.get('X-Order-ID');
 
-    const orderId = response.headers.get('X-Order-ID');
+    lastSavedOrder = {
+      signature,
+      orderId,
+      pdfBlob: null
+    };
 
     if (!orderId) {
       throw new Error(
-        'Se recibió el PDF, pero no el número de pedido.'
+        'El servidor no devolvió el número del pedido.'
       );
     }
 
     const pdfBlob = await response.blob();
 
     if (!pdfBlob.size) {
-      throw new Error('El servidor devolvió un PDF vacío.');
+      throw new Error(
+        'El servidor devolvió un PDF vacío.'
+      );
     }
+
+    lastSavedOrder.pdfBlob = pdfBlob;
 
     mostrarOpcionesPdf(pdfBlob, orderId);
 
   } catch (error) {
     console.error('Error enviando pedido:', error);
 
-    msg.textContent = orderSaved
-      ? 'El pedido se guardó, pero hubo un problema con el PDF: ' +
-        error.message + '. No lo envíes otra vez.'
-      : (error.message || 'Error al enviar el pedido.');
+    msg.textContent =
+      lastSavedOrder?.signature === signature
+        ? 'El pedido se guardó, pero hubo un problema ' +
+          'con el PDF: ' + error.message +
+          '. No lo envíes de nuevo.'
+        : (error.message || 'Error al enviar el pedido.');
 
     msg.className = 'error';
 
-    if (!orderSaved) {
-      sending = false;
+  } finally {
+    sending = false;
 
-      if (submitButton) {
-        submitButton.disabled = false;
-      }
+    if (submitButton) {
+      submitButton.disabled = false;
     }
+
+    render();
   }
 });
 
