@@ -6,6 +6,11 @@ import sqlite3
 import os
 import hmac
 import io
+import re
+import posixpath
+import unicodedata
+import zipfile
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from xml.sax.saxutils import escape
 
@@ -96,6 +101,8 @@ def protect_admin():
 
     protected = (
         path == "/admin"
+        or (path == "/api/products/import" and method == "POST")
+        or (path.startswith("/api/orders/") and path.endswith("/pdf") and method == "GET")
         or (path == "/api/orders" and method == "GET")
         or (path.startswith("/api/orders/") and method == "PATCH")
         or (path == "/api/products" and method == "POST")
@@ -111,13 +118,6 @@ def protect_admin():
             path.startswith("/api/categories/")
             and method == "DELETE"
         )
-        
-or (
-    path.startswith("/api/orders/")
-    and path.endswith("/pdf")
-    and method == "GET"
-)
-
     )
 
     if not protected:
@@ -420,6 +420,205 @@ def delete_category(category_id):
     )
 
 
+
+# -------------------- IMPORTACIÓN DE EXCEL --------------------
+# Lee archivos .xlsx con la biblioteca estándar de Python.
+# No necesita instalar dependencias y nunca modifica datos existentes.
+
+XLSX_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+XLSX_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PACKAGE_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
+MAX_EXCEL_BYTES = 5 * 1024 * 1024
+MAX_EXCEL_ROWS = 5000
+
+
+def normalizar_encabezado(value):
+    value = unicodedata.normalize("NFKD", str(value or ""))
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", "", value.casefold())
+
+
+def columna_excel(ref):
+    letters = re.match(r"[A-Za-z]+", ref or "")
+    if not letters:
+        return None
+    col = 0
+    for char in letters.group().upper():
+        col = col * 26 + ord(char) - ord("A") + 1
+    return col - 1
+
+
+def leer_excel_productos(raw):
+    """Obtiene (número_fila, proveedor, producto) de la primera hoja .xlsx."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            names = set(archive.namelist())
+            if "xl/workbook.xml" not in names:
+                raise ValueError("El archivo no parece ser un Excel .xlsx válido.")
+            if len(names) > 200 or sum(i.file_size for i in archive.infolist()) > 25 * 1024 * 1024:
+                raise ValueError("El Excel tiene demasiados datos para importar.")
+
+            workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+            first_sheet = workbook.find("m:sheets/m:sheet", XLSX_NS)
+            if first_sheet is None:
+                raise ValueError("El Excel no contiene hojas.")
+
+            sheet_rel = first_sheet.attrib.get("{" + XLSX_REL + "}id")
+            rel_root = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+            targets = {
+                element.attrib.get("Id"): element.attrib.get("Target", "")
+                for element in rel_root.findall("{" + PACKAGE_REL + "}Relationship")
+            }
+            target = targets.get(sheet_rel, "")
+            if not target:
+                raise ValueError("No se pudo leer la primera hoja del Excel.")
+
+            sheet_path = (target.lstrip("/") if target.startswith("/")
+                          else posixpath.normpath(posixpath.join("xl", target)))
+            if sheet_path not in names or not sheet_path.startswith("xl/worksheets/"):
+                raise ValueError("No se pudo localizar la primera hoja del Excel.")
+
+            shared_strings = []
+            if "xl/sharedStrings.xml" in names:
+                strings_root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+                for entry in strings_root.findall("m:si", XLSX_NS):
+                    shared_strings.append("".join(
+                        node.text or "" for node in entry.iter("{" + XLSX_NS["m"] + "}t")
+                    ))
+
+            sheet = ET.fromstring(archive.read(sheet_path))
+            xml_rows = sheet.findall("m:sheetData/m:row", XLSX_NS)
+            if len(xml_rows) > MAX_EXCEL_ROWS + 5:
+                raise ValueError("El Excel supera el límite de 5000 filas.")
+
+            rows = []
+            for xml_row in xml_rows:
+                cells = {}
+                for cell in xml_row.findall("m:c", XLSX_NS):
+                    index = columna_excel(cell.attrib.get("r", ""))
+                    if index is None or index > 200:
+                        continue
+                    cell_type = cell.attrib.get("t")
+                    if cell_type == "inlineStr":
+                        value = "".join(
+                            n.text or "" for n in cell.iter("{" + XLSX_NS["m"] + "}t")
+                        )
+                    else:
+                        value_tag = cell.find("m:v", XLSX_NS)
+                        value = value_tag.text if value_tag is not None else ""
+                        if cell_type == "s" and value:
+                            string_index = int(value)
+                            value = shared_strings[string_index]
+                    cells[index] = str(value or "").strip()
+                if any(cells.values()):
+                    rows.append((int(xml_row.attrib.get("r", len(rows) + 1)), cells))
+
+    except (zipfile.BadZipFile, ET.ParseError, KeyError, IndexError, ValueError) as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith("El Excel"):
+            raise
+        raise ValueError("No se pudo leer el Excel. Guardalo como archivo .xlsx válido.") from exc
+
+    if not rows:
+        raise ValueError("El Excel está vacío.")
+
+    _, header = rows[0]
+    keys = {normalizar_encabezado(text): column for column, text in header.items()}
+
+    product_headers = ("producto", "articulo", "nombre", "name", "productname", "nombreproducto", "nombrearticulo")
+    provider_headers = ("proveedor", "supplier", "categoria", "category")
+
+    product_col = next((keys[key] for key in product_headers if key in keys), None)
+    provider_col = next((keys[key] for key in provider_headers if key in keys), None)
+
+    if product_col is None:
+        raise ValueError(
+            "No encuentro una columna 'Producto', 'Artículo' o 'name' en la primera fila."
+        )
+
+    output = []
+    for row_number, cells in rows[1:]:
+        name = cells.get(product_col, "").strip()
+        provider = cells.get(provider_col, "").strip() if provider_col is not None else ""
+        if not name:
+            continue
+        if len(name) > 100:
+            raise ValueError(f"Fila {row_number}: el nombre del artículo supera 100 caracteres.")
+        if len(provider) > 60:
+            raise ValueError(f"Fila {row_number}: el proveedor supera 60 caracteres.")
+        output.append((row_number, provider, name))
+
+    if not output:
+        raise ValueError("El Excel no contiene artículos para importar.")
+    if len(output) > MAX_EXCEL_ROWS:
+        raise ValueError("El Excel supera el límite de 5000 artículos.")
+    return output
+
+
+@app.post("/api/products/import")
+def import_products_excel():
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename or not uploaded.filename.lower().endswith(".xlsx"):
+        return jsonify(error="Seleccioná un archivo Excel .xlsx."), 400
+
+    raw = uploaded.read(MAX_EXCEL_BYTES + 1)
+    if len(raw) > MAX_EXCEL_BYTES:
+        return jsonify(error="El Excel supera los 5 MB permitidos."), 400
+
+    default_provider = str(request.form.get("category", "")).strip()
+    preview = request.form.get("preview") == "1"
+
+    try:
+        incoming = leer_excel_productos(raw)
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+
+    with db() as c:
+        existing_providers = c.execute("SELECT name FROM categories").fetchall()
+        providers = {p["name"].casefold(): p["name"] for p in existing_providers}
+        known_products = c.execute("SELECT category, name FROM products").fetchall()
+        known = {(p["category"].casefold(), p["name"].casefold()) for p in known_products}
+
+        to_add = []
+        duplicates = 0
+        seen = set()
+        problems = []
+
+        for line, excel_provider, name in incoming:
+            provider_input = excel_provider or default_provider
+            provider = providers.get(provider_input.casefold())
+            if not provider:
+                problems.append(f"Fila {line}: proveedor '{provider_input or '(sin proveedor)'}' no existe.")
+                if len(problems) >= 10:
+                    break
+                continue
+
+            key = (provider.casefold(), name.casefold())
+            if key in known or key in seen:
+                duplicates += 1
+                continue
+            seen.add(key)
+            to_add.append((provider, name, 0))
+
+        if problems:
+            return jsonify(error="No se importó nada. " + " ".join(problems)), 400
+
+        if not preview and to_add:
+            c.executemany(
+                "INSERT INTO products(category, name, price) VALUES(?,?,?)",
+                to_add
+            )
+
+    return jsonify(
+        ok=True,
+        preview=preview,
+        total=len(incoming),
+        added=0 if preview else len(to_add),
+        new_count=len(to_add),
+        duplicates=duplicates,
+        examples=[{"provider": provider, "name": name} for provider, name, _ in to_add[:12]]
+    )
+
+
 @app.get("/api/products")
 def products():
     with db() as c:
@@ -528,61 +727,36 @@ def get_orders():
 
 @app.get("/api/orders/<int:oid>/pdf")
 def descargar_pdf_pedido(oid):
-
+    # Descarga de pedidos existentes: no se crea un nuevo pedido.
     with db() as c:
         order = c.execute(
-            """
-            SELECT id, customer, notes, order_date
-            FROM orders
-            WHERE id = ?
-            """,
+            "SELECT id, customer, notes, order_date FROM orders WHERE id = ?",
             (oid,)
         ).fetchone()
-
         if not order:
-            return jsonify(
-                error="Pedido no encontrado."
-            ), 404
+            return jsonify(error="Pedido no encontrado."), 404
 
-        rows = c.execute(
-            """
+        rows = c.execute("""
             SELECT product_id, name, price, quantity
-            FROM order_items
-            WHERE order_id = ?
-            ORDER BY id
-            """,
-            (oid,)
-        ).fetchall()
+            FROM order_items WHERE order_id = ? ORDER BY id
+        """, (oid,)).fetchall()
 
     if not rows:
-        return jsonify(
-            error="El pedido no tiene productos."
-        ), 404
+        return jsonify(error="El pedido no tiene productos."), 404
 
     items = [
-        (
-            row["product_id"],
-            row["name"],
-            row["price"],
-            row["quantity"]
-        )
+        (row["product_id"], row["name"], row["price"], row["quantity"])
         for row in rows
     ]
-
     pdf = generar_pdf_pedido(
-        order["id"],
-        order["customer"],
-        order["notes"],
-        items,
-        order["order_date"] or "No indicada"
+        order["id"], order["customer"], order["notes"],
+        items, order["order_date"] or "No indicada"
     )
-
     return send_file(
-        pdf,
-        mimetype="application/pdf",
-        as_attachment=True,
+        pdf, mimetype="application/pdf", as_attachment=True,
         download_name=f"pedido_{oid}.pdf"
     )
+
 
 @app.patch("/api/orders/<int:oid>")
 def update_order(oid):
