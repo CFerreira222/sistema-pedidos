@@ -180,8 +180,64 @@ async function loadOrders() {
       count.textContent =
         `${(order.items || []).length} línea(s) de productos`;
 
-      bottom.append(count);
-      card.append(bottom);
+      
+bottom.append(count);
+
+const pdfButton = document.createElement('button');
+pdfButton.type = 'button';
+pdfButton.className = 'secondary';
+pdfButton.textContent = 'Exportar PDF';
+
+pdfButton.addEventListener('click', async () => {
+  const descargar = confirm(
+    `Pedido #${order.id}\n\n¿Deseás descargar el PDF?`
+  );
+
+  if (!descargar) {
+    window.location.assign('/');
+    return;
+  }
+
+  pdfButton.disabled = true;
+
+  try {
+    const response = await fetch(
+      `/api/orders/${order.id}/pdf`
+    );
+
+    if (!response.ok) {
+      const error = await readResponse(response);
+
+      throw new Error(
+        error.error || 'No se pudo descargar el PDF.'
+      );
+    }
+
+    const pdf = await response.blob();
+    const url = URL.createObjectURL(pdf);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pedido_${order.id}.pdf`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      window.location.assign('/');
+    }, 1000);
+
+  } catch (error) {
+    alert(error.message || 'Error al descargar el PDF.');
+    pdfButton.disabled = false;
+  }
+});
+
+bottom.append(pdfButton);
+card.append(bottom);
+
 
       ordersEl.append(card);
     });
