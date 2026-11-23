@@ -197,6 +197,10 @@ def init_db():
                     name TEXT NOT NULL UNIQUE
                 )
             """)
+            # Agrega la fecha solicitada sin modificar pedidos anteriores.
+            c.execute(
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_date TEXT"
+            )
 
         else:
             c.execute("""
@@ -238,6 +242,10 @@ def init_db():
                     name TEXT NOT NULL UNIQUE
                 )
             """)
+            # Migración compatible con SQLite.
+            order_columns = c.execute("PRAGMA table_info(orders)").fetchall()
+            if not any(column["name"] == "order_date" for column in order_columns):
+                c.execute("ALTER TABLE orders ADD COLUMN order_date TEXT")
 
         count = c.execute(
             "SELECT COUNT(*) AS n FROM products"
@@ -262,103 +270,58 @@ def money(n):
     return round(float(n), 2)
 
 
-def generar_pdf_pedido(oid, customer, notes, items, fecha):
+def generar_pdf_pedido(oid, customer, notes, items, order_date):
     buffer = io.BytesIO()
-
     doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=20 * mm,
-        leftMargin=20 * mm,
-        topMargin=18 * mm,
-        bottomMargin=18 * mm
+        buffer, pagesize=A4,
+        rightMargin=20 * mm, leftMargin=20 * mm,
+        topMargin=18 * mm, bottomMargin=18 * mm
     )
-
     styles = getSampleStyleSheet()
+
+    try:
+        fecha_legible = datetime.strptime(order_date, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except (ValueError, TypeError):
+        fecha_legible = str(order_date)
 
     content = [
         Paragraph(f"<b>PEDIDO #{oid}</b>", styles["Title"]),
         Spacer(1, 6 * mm),
-        Paragraph(
-            f"<b>Cliente:</b> {escape(customer)}",
-            styles["Normal"]
-        ),
-        Paragraph(
-            f"<b>Fecha:</b> {escape(fecha)}",
-            styles["Normal"]
-        ),
+        Paragraph(f"<b>Solicitante:</b> {escape(customer)}", styles["Normal"]),
+        Paragraph(f"<b>Fecha solicitada:</b> {escape(fecha_legible)}", styles["Normal"]),
         Spacer(1, 7 * mm)
     ]
 
-    table_data = [
-        ["Cantidad", "Producto", "Precio unit.", "Subtotal"]
-    ]
-
-    total = 0
-
+    table_data = [["Cantidad", "Producto"]]
     for item in items:
-        name = str(item[1])
-        price = float(item[2])
-        quantity = int(item[3])
-        subtotal = price * quantity
-        total += subtotal
-
         table_data.append([
-            str(quantity),
-            Paragraph(escape(name), styles["BodyText"]),
-            f"$ {price:,.2f}",
-            f"$ {subtotal:,.2f}"
+            str(int(item[3])),
+            Paragraph(escape(str(item[1])), styles["BodyText"])
         ])
 
-    table_data.append([
-        "",
-        "",
-        "TOTAL",
-        f"$ {total:,.2f}"
-    ])
-
-    table = Table(
-        table_data,
-        colWidths=[
-            22 * mm,
-            78 * mm,
-            32 * mm,
-            35 * mm
-        ],
-        repeatRows=1
-    )
-
+    table = Table(table_data, colWidths=[28 * mm, 137 * mm], repeatRows=1)
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#222222")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("SPAN", (0, -1), (1, -1)),
         ("ALIGN", (0, 0), (0, -1), "CENTER"),
-        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
-        ("GRID", (0, 0), (-1, -2), 0.4, colors.grey),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.black),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
         ("TOPPADDING", (0, 0), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
-
     content.append(table)
 
     if notes:
         content.extend([
             Spacer(1, 8 * mm),
-            Paragraph(
-                f"<b>Observaciones:</b> {escape(notes)}",
-                styles["BodyText"]
-            )
+            Paragraph(f"<b>Observaciones:</b> {escape(notes)}", styles["BodyText"])
         ])
 
     doc.build(content)
     buffer.seek(0)
-
     return buffer
 
 
@@ -454,7 +417,7 @@ def delete_category(category_id):
 def products():
     with db() as c:
         rows = c.execute("""
-            SELECT id, category, name, price
+            SELECT id, category, name
             FROM products
             WHERE active = 1
             ORDER BY category, name
@@ -466,24 +429,24 @@ def products():
 @app.post("/api/orders")
 def create_order():
     data = request.get_json(silent=True) or {}
-
-    customer = str(data.get("customer", "")).strip()
+    customer = str(data.get("customer", "")).strip()[:100]
+    order_date = str(data.get("order_date", "")).strip()
     items = data.get("items", [])
     notes = str(data.get("notes", "")).strip()[:500]
 
     if not customer:
-        return jsonify(
-            error="Ingresá el nombre del cliente."
-        ), 400
+        return jsonify(error="Ingresá el nombre del solicitante."), 400
+
+    try:
+        datetime.strptime(order_date, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return jsonify(error="Seleccioná una fecha válida para el pedido."), 400
 
     if not isinstance(items, list) or not items:
-        return jsonify(
-            error="Agregá al menos un producto."
-        ), 400
+        return jsonify(error="Agregá al menos un producto."), 400
 
     with db() as c:
         valid = []
-
         for item in items:
             try:
                 pid = int(item.get("product_id"))
@@ -501,64 +464,32 @@ def create_order():
             """, (pid,)).fetchone()
 
             if product:
-                valid.append((
-                    product["id"],
-                    product["name"],
-                    money(product["price"]),
-                    qty
-                ))
+                # Se conserva el campo histórico price, sin mostrarlo.
+                valid.append((product["id"], product["name"], money(product["price"]), qty))
 
         if not valid:
-            return jsonify(
-                error="No hay productos válidos en el pedido."
-            ), 400
+            return jsonify(error="No hay productos válidos en el pedido."), 400
 
-        now = datetime.now().astimezone().strftime(
-            "%d/%m/%Y %H:%M"
-        )
-
+        now = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M")
         cur = c.execute("""
-            INSERT INTO orders(
-                customer, notes, status, created_at
-            )
-            VALUES(?,?,?,?)
+            INSERT INTO orders(customer, notes, status, created_at, order_date)
+            VALUES(?,?,?,?,?)
             RETURNING id
-        """, (
-            customer,
-            notes,
-            "Recibido",
-            now
-        ))
-
+        """, (customer, notes, "Pedido", now, order_date))
         order_id = cur.fetchone()["id"]
 
         c.executemany("""
-            INSERT INTO order_items(
-                order_id, product_id, name, price, quantity
-            )
+            INSERT INTO order_items(order_id, product_id, name, price, quantity)
             VALUES(?,?,?,?,?)
-        """, [
-            (order_id, *item)
-            for item in valid
-        ])
+        """, [(order_id, *item) for item in valid])
 
-        pdf = generar_pdf_pedido(
-            order_id,
-            customer,
-            notes,
-            valid,
-            now
-        )
+        pdf = generar_pdf_pedido(order_id, customer, notes, valid, order_date)
 
     response = send_file(
-        pdf,
-        mimetype="application/pdf",
-        as_attachment=True,
+        pdf, mimetype="application/pdf", as_attachment=True,
         download_name=f"pedido_{order_id}.pdf"
     )
-
     response.headers["X-Order-ID"] = str(order_id)
-
     return response
 
 
@@ -566,31 +497,23 @@ def create_order():
 def get_orders():
     with db() as c:
         orders = c.execute("""
-            SELECT *
-            FROM orders
+            SELECT * FROM orders
             ORDER BY id DESC
             LIMIT 200
         """).fetchall()
 
         result = []
-
         for order in orders:
             items = c.execute("""
-                SELECT name, price, quantity
+                SELECT name, quantity
                 FROM order_items
                 WHERE order_id = ?
                 ORDER BY id
             """, (order["id"],)).fetchall()
 
-            total = sum(
-                item["price"] * item["quantity"]
-                for item in items
-            )
-
             result.append({
                 **dict(order),
-                "items": [dict(item) for item in items],
-                "total": money(total)
+                "items": [dict(item) for item in items]
             })
 
     return jsonify(result)
@@ -602,11 +525,9 @@ def update_order(oid):
     status = data.get("status")
 
     allowed = [
+        "Pedido",
         "Recibido",
-        "En preparación",
-        "Listo",
-        "Entregado",
-        "Cancelado"
+        "Sin stock"
     ]
 
     if status not in allowed:
@@ -631,52 +552,29 @@ def update_order(oid):
 @app.post("/api/products")
 def add_product():
     data = request.get_json(silent=True) or {}
-
     category = str(data.get("category", "")).strip()[:60]
     name = str(data.get("name", "")).strip()[:100]
 
-    try:
-        price = float(data.get("price"))
-    except (ValueError, TypeError):
-        price = -1
-
-    if (
-        not category
-        or not name
-        or price < 0
-        or price > 1000000
-    ):
-        return jsonify(
-            error="Completá proveedor, producto y precio válido."
-        ), 400
+    if not category or not name:
+        return jsonify(error="Completá el proveedor y el nombre del producto."), 400
 
     with db() as c:
         provider = c.execute(
-            "SELECT id FROM categories WHERE name = ?",
-            (category,)
+            "SELECT id FROM categories WHERE name = ?", (category,)
         ).fetchone()
 
         if not provider:
-            return jsonify(
-                error="Elegí un proveedor existente."
-            ), 400
+            return jsonify(error="Elegí un proveedor existente."), 400
 
+        # price se mantiene en 0 por compatibilidad con la base anterior.
         cur = c.execute("""
             INSERT INTO products(category, name, price)
             VALUES(?,?,?)
             RETURNING id
-        """, (
-            category,
-            name,
-            money(price)
-        ))
-
+        """, (category, name, 0))
         product_id = cur.fetchone()["id"]
 
-    return jsonify(
-        ok=True,
-        id=product_id
-    )
+    return jsonify(ok=True, id=product_id)
 
 
 @app.delete("/api/products/<int:pid>")
