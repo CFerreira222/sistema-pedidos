@@ -56,13 +56,11 @@ async function apiFetch(url, options = {}) {
 
 function mostrarOpcionesPdf(pdfBlob, orderId) {
   const filename = `pedido_${orderId}.pdf`;
-
   const file = typeof File === 'function'
     ? new File([pdfBlob], filename, { type: 'application/pdf' })
     : null;
 
   const dialog = document.createElement('dialog');
-
   dialog.style.cssText =
     'border:1px solid #ddd;border-radius:14px;padding:22px;' +
     'width:min(92vw,420px);max-width:420px;box-sizing:border-box;';
@@ -75,7 +73,6 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
   description.textContent = '¿Qué querés hacer con el PDF?';
 
   const actions = document.createElement('div');
-
   actions.style.cssText =
     'display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;';
 
@@ -97,9 +94,7 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
   const notice = document.createElement('p');
   notice.style.cssText = 'font-size:13px;margin-top:12px;';
 
-  let shareSupported =
-    Boolean(file) && typeof navigator.share === 'function';
-
+  let shareSupported = Boolean(file) && typeof navigator.share === 'function';
   if (shareSupported && typeof navigator.canShare === 'function') {
     try {
       shareSupported = navigator.canShare({ files: [file] });
@@ -110,7 +105,6 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
 
   if (!shareSupported) {
     shareButton.disabled = true;
-
     notice.textContent =
       'Compartir archivos no está disponible en este navegador. ' +
       'Podés descargar el PDF y compartirlo manualmente.';
@@ -123,15 +117,12 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
 
   downloadButton.addEventListener('click', () => {
     const url = URL.createObjectURL(pdfBlob);
-
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
-
     document.body.appendChild(link);
     link.click();
     link.remove();
-
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     closeDialog();
   });
@@ -139,18 +130,16 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
   shareButton.addEventListener('click', async () => {
     if (!shareSupported) return;
 
+    // navigator.share debe activarse directamente desde este clic.
     try {
       await navigator.share({
         files: [file],
         title: `Pedido #${orderId}`
       });
-
       closeDialog();
-
     } catch (error) {
       if (error?.name !== 'AbortError') {
         console.error('No se pudo compartir el PDF:', error);
-
         notice.textContent =
           'No se pudo compartir. Podés intentar de nuevo o descargar el PDF.';
       }
@@ -158,7 +147,6 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
   });
 
   closeButton.addEventListener('click', closeDialog);
-
   dialog.addEventListener('cancel', event => {
     event.preventDefault();
     closeDialog();
@@ -166,7 +154,6 @@ function mostrarOpcionesPdf(pdfBlob, orderId) {
 
   actions.append(downloadButton, shareButton, closeButton);
   dialog.append(title, description, actions, notice);
-
   document.body.appendChild(dialog);
   dialog.showModal();
 }
@@ -177,20 +164,18 @@ function showCategoriesTab() {
   const tab = document.querySelector(
     '.admin-tab[data-tab="categories-section"]'
   );
-
   const panel = document.getElementById('categories-section');
 
   if (!tab || !panel) return;
 
   document.querySelectorAll('.admin-tab').forEach(button => {
     const active = button === tab;
-
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
 
   document.querySelectorAll('.admin-section').forEach(section => {
-    section.hidden = section !== panel;
+    section.hidden = section === panel ? false : true;
   });
 }
 
@@ -218,16 +203,13 @@ async function loadOrders() {
       top.className = 'order-top';
 
       const meta = document.createElement('div');
-
       meta.innerHTML = `
         <div class="order-id">
           Pedido #${escapeHtml(order.id)} ·
           ${escapeHtml(order.customer)}
         </div>
-
         <div class="order-time">
-          Fecha solicitada:
-          ${escapeHtml(order.order_date || 'No indicada')}<br>
+          Fecha solicitada: ${escapeHtml(order.order_date || 'No indicada')}<br>
           Registrado: ${escapeHtml(order.created_at)}
         </div>
       `;
@@ -246,19 +228,16 @@ async function loadOrders() {
         option.value = status;
         option.textContent = status;
         option.selected = order.status === status;
-
         statusSelect.append(option);
       });
 
-      // Conservar visualmente los estados históricos.
+      // Mostrar estados históricos sin cambiarlos en la base de datos.
       if (order.status && !statuses.includes(order.status)) {
         const oldOption = document.createElement('option');
         oldOption.value = '';
-        oldOption.textContent =
-          'Estado anterior: ' + order.status;
+        oldOption.textContent = 'Estado anterior: ' + order.status;
         oldOption.disabled = true;
         oldOption.selected = true;
-
         statusSelect.append(oldOption);
       }
 
@@ -275,11 +254,9 @@ async function loadOrders() {
               status: statusSelect.value
             })
           });
-
         } catch (error) {
           alert(error.message || 'No se pudo actualizar el pedido.');
           await loadOrders();
-
         } finally {
           statusSelect.disabled = false;
         }
@@ -321,7 +298,6 @@ async function loadOrders() {
 
       bottom.append(count);
 
-      // EXPORTAR Y COMPARTIR PDF
       const pdfButton = document.createElement('button');
       pdfButton.type = 'button';
       pdfButton.className = 'secondary';
@@ -331,31 +307,23 @@ async function loadOrders() {
         pdfButton.disabled = true;
 
         try {
-          const response = await fetch(
-            `/api/orders/${order.id}/pdf`,
-            { cache: 'no-store' }
-          );
+          const response = await fetch(`/api/orders/${order.id}/pdf`, {
+            cache: 'no-store'
+          });
 
           if (!response.ok) {
             const error = await readResponse(response);
-
-            throw new Error(
-              error.error || 'No se pudo obtener el PDF.'
-            );
+            throw new Error(error.error || 'No se pudo obtener el PDF.');
           }
 
           const pdf = await response.blob();
+          if (!pdf.size) throw new Error('El PDF está vacío.');
 
-          if (!pdf.size) {
-            throw new Error('El PDF está vacío.');
-          }
-
+          // Nunca cambia a la página del cliente.
           mostrarOpcionesPdf(pdf, order.id);
-
         } catch (error) {
           console.error('Error obteniendo PDF:', error);
           alert(error.message || 'No se pudo obtener el PDF.');
-
         } finally {
           pdfButton.disabled = false;
         }
@@ -363,290 +331,430 @@ async function loadOrders() {
 
       bottom.append(pdfButton);
       card.append(bottom);
+
       ordersEl.append(card);
     });
 
   } catch (error) {
     console.error('Error cargando pedidos:', error);
-
     ordersEl.innerHTML =
       '<div class="empty">No se pudieron cargar los pedidos.</div>';
   }
 }
 
-// -------------------- PROVEEDORES --------------------
+// -------------------- PROVEEDORES Y PRODUCTOS --------------------
 
-async function fetchCategories() {
-  const categories = await apiFetch('/api/categories');
+let lastProducts = [];
+let lastCategories = [];
+let showInactiveProducts = false;
+let productSearchText = '';
+const productOpenGroups = new Set();
 
-  if (!Array.isArray(categories)) {
-    throw new Error('La respuesta de proveedores no es válida.');
-  }
-
-  return categories;
+async function fetchCategories(includeInactive = false) {
+  const url = includeInactive
+    ? '/api/categories?include_inactive=1'
+    : '/api/categories';
+  const data = await apiFetch(url);
+  if (!Array.isArray(data)) throw new Error('Respuesta de proveedores inválida.');
+  return data;
 }
 
-async function fetchProducts() {
-  const products = await apiFetch('/api/products');
-
-  if (!Array.isArray(products)) {
-    throw new Error('La respuesta de productos no es válida.');
-  }
-
-  return products;
+async function fetchProductsForAdmin() {
+  const data = await apiFetch('/api/products/manage');
+  if (!Array.isArray(data)) throw new Error('Respuesta de productos inválida.');
+  return data;
 }
 
-async function loadCategories(selectedName = '') {
+function optionFor(value, label) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  return option;
+}
+
+function updateProviderSelectors(categories, selectedName) {
+  const active = categories.filter(category => Number(category.active) === 1);
+
+  if (categorySelect) {
+    const choice = selectedName ?? categorySelect.value;
+    categorySelect.replaceChildren(optionFor('', 'Elegí un proveedor'));
+    active.forEach(category => {
+      categorySelect.append(optionFor(category.name, category.name));
+    });
+    categorySelect.value = active.some(item => item.name === choice) ? choice : '';
+  }
+
+  // Mantener actualizado el selector del importador sin modificar su archivo.
+  const excelSelect = document.querySelector('#excel-provider');
+  if (excelSelect) {
+    const previous = excelSelect.value;
+    excelSelect.replaceChildren(optionFor('', 'Usar proveedor del Excel'));
+    active.forEach(category => {
+      excelSelect.append(optionFor(category.name, category.name));
+    });
+    const next = active.some(item => item.name === previous) ? previous : '';
+    excelSelect.value = next;
+    if (previous !== next) excelSelect.dispatchEvent(new Event('change'));
+  }
+}
+
+async function refreshCatalog(selectedName) {
+  const [categories, products] = await Promise.all([
+    fetchCategories(true),
+    fetchProductsForAdmin()
+  ]);
+  lastCategories = categories;
+  lastProducts = products;
+  updateProviderSelectors(categories, selectedName);
+  renderProducts();
+  renderCategories();
+}
+
+async function loadCategories(selectedName) {
   try {
-    const categories = await fetchCategories();
-
-    if (categorySelect) {
-      categorySelect.innerHTML =
-        '<option value="">Elegí un proveedor</option>';
-
-      categories.forEach(category => {
-        const name = getCategoryName(category);
-
-        if (!name) return;
-
-        const option = document.createElement('option');
-        option.value = name;
-        option.textContent = name;
-        option.selected = name === selectedName;
-
-        categorySelect.append(option);
-      });
-    }
-
-    await renderCategories(categories);
-
-    if (categoryMsg && !categoryMsg.classList.contains('error')) {
-      categoryMsg.textContent = '';
-    }
-
+    await refreshCatalog(selectedName);
   } catch (error) {
     console.error('Error cargando proveedores:', error);
-
     if (categoryMsg) {
-      categoryMsg.textContent =
-        error.message || 'No se pudieron cargar los proveedores.';
+      categoryMsg.textContent = error.message;
       categoryMsg.className = 'error';
     }
   }
 }
 
-async function renderCategories(categories) {
+async function loadProducts() {
+  try {
+    await refreshCatalog();
+  } catch (error) {
+    console.error('Error cargando productos:', error);
+    if (productsEl) {
+      productsEl.textContent = 'No se pudieron cargar los productos: ' + error.message;
+    }
+  }
+}
+
+function adminActionButton(text, action, danger = false) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = text;
+  button.className = danger ? 'remove' : 'secondary';
+  button.style.margin = '3px';
+  button.addEventListener('click', action);
+  return button;
+}
+
+function renderCategories() {
   if (!categoriesList) return;
+  categoriesList.replaceChildren();
 
-  const products = await fetchProducts();
-  categoriesList.innerHTML = '';
-
-  if (!categories.length) {
-    categoriesList.innerHTML =
-      '<div class="empty">Todavía no hay proveedores.</div>';
+  if (!lastCategories.length) {
+    categoriesList.textContent = 'Todavía no hay proveedores.';
     return;
   }
 
-  [...categories]
-    .sort((a, b) =>
-      getCategoryName(a).localeCompare(getCategoryName(b), 'es')
-    )
-    .forEach(category => {
-      const name = getCategoryName(category);
+  lastCategories.forEach(category => {
+    const associated = lastProducts.filter(p => p.category === category.name);
+    const activeCount = associated.filter(p => Number(p.active) === 1).length;
+    const archived = Number(category.active) !== 1;
+    const card = document.createElement('div');
+    card.className = 'category-group';
+    card.style.cssText = 'border:1px solid #ddd;border-radius:10px;padding:12px;margin:8px 0;';
 
-      const id = typeof category === 'object'
-        ? category.id
-        : null;
+    const name = document.createElement('strong');
+    name.textContent = `${category.name} — ${activeCount} activo(s), ` +
+      `${associated.length - activeCount} desactivado(s)` +
+      (archived ? ' [ARCHIVADO]' : '');
+    card.append(name);
 
-      const matchingProducts = products.filter(
-        product => product.category === name
-      );
+    const actions = document.createElement('div');
+    actions.style.marginTop = '8px';
 
-      const group = document.createElement('details');
-      group.className = 'category-group';
-
-      const summary = document.createElement('summary');
-      summary.className = 'category-summary';
-      summary.textContent =
-        `${name} (${matchingProducts.length} productos)`;
-
-      group.append(summary);
-
-      const content = document.createElement('div');
-      content.className = 'category-products';
-
-      if (!matchingProducts.length) {
-        const empty = document.createElement('p');
-        empty.className = 'muted';
-        empty.textContent =
-          'Este proveedor todavía no tiene productos.';
-
-        content.append(empty);
-
-      } else {
-        matchingProducts.forEach(product => {
-          const row = document.createElement('div');
-          row.className = 'product-row';
-
-          const info = document.createElement('span');
-          info.innerHTML =
-            `<strong>${escapeHtml(product.name)}</strong>`;
-
-          row.append(info);
-          content.append(row);
+    actions.append(adminActionButton('Renombrar proveedor', async () => {
+      const newName = window.prompt('Nuevo nombre del proveedor:', category.name);
+      if (newName === null || newName.trim() === category.name) return;
+      if (!newName.trim()) return alert('Ingresá un nombre válido.');
+      if (!confirm(`¿Cambiar «${category.name}» a «${newName.trim()}»?\n` +
+                   'Los artículos asociados pasarán al nuevo nombre.')) return;
+      try {
+        await apiFetch(`/api/categories/${category.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName.trim() })
         });
-      }
+        await refreshCatalog();
+        if (categoryMsg) {
+          categoryMsg.textContent = 'Proveedor renombrado correctamente.';
+          categoryMsg.className = 'success';
+        }
+      } catch (error) { alert(error.message); }
+    }));
 
-      if (id !== null && id !== undefined) {
-        const remove = document.createElement('button');
-        remove.className = 'remove';
-        remove.type = 'button';
-        remove.textContent = 'Eliminar proveedor';
-
-        remove.addEventListener('click', async () => {
-          if (matchingProducts.length) {
-            alert(
-              'Este proveedor tiene productos asociados. ' +
-              'No se puede eliminar hasta quitar o reasignar esos productos.'
-            );
-            return;
-          }
-
-          if (!confirm(`¿Eliminar el proveedor "${name}"?`)) {
-            return;
-          }
-
-          try {
-            await apiFetch('/api/categories/' + id, {
-              method: 'DELETE'
-            });
-
-            await loadCategories();
-
-            if (categoryMsg) {
-              categoryMsg.textContent = 'Proveedor eliminado.';
-              categoryMsg.className = 'success';
-            }
-
-          } catch (error) {
-            alert(error.message || 'No se pudo eliminar el proveedor.');
-          }
-        });
-
-        content.append(remove);
-      }
-
-      group.append(content);
-      categoriesList.append(group);
-    });
-}
-
-// -------------------- PRODUCTOS --------------------
-
-async function loadProducts() {
-  if (!productsEl) return;
-
-  try {
-    const [products, categories] = await Promise.all([
-      fetchProducts(),
-      fetchCategories()
-    ]);
-
-    productsEl.innerHTML = '';
-    const groups = {};
-
-    categories.forEach(category => {
-      const name = getCategoryName(category);
-      if (name) groups[name] = [];
-    });
-
-    products.forEach(product => {
-      const category = product.category || 'Sin categoría';
-
-      if (!groups[category]) {
-        groups[category] = [];
-      }
-
-      groups[category].push(product);
-    });
-
-    const names = Object.keys(groups).sort((a, b) =>
-      a.localeCompare(b, 'es')
-    );
-
-    if (!names.length) {
-      productsEl.innerHTML =
-        '<div class="empty">Primero creá un proveedor.</div>';
-      return;
+    if (archived) {
+      actions.append(adminActionButton('Reactivar proveedor', async () => {
+        try {
+          await apiFetch(`/api/categories/${category.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active: true })
+          });
+          await refreshCatalog();
+        } catch (error) { alert(error.message); }
+      }));
+    } else {
+      const archive = adminActionButton('Archivar proveedor', async () => {
+        if (!confirm(`¿Archivar «${category.name}»? No se borrarán sus artículos.`)) return;
+        try {
+          await apiFetch(`/api/categories/${category.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active: false })
+          });
+          await refreshCatalog();
+        } catch (error) { alert(error.message); }
+      });
+      archive.disabled = activeCount > 0;
+      archive.title = activeCount
+        ? 'Primero desactivá o mové sus artículos activos'
+        : 'Ocultar proveedor sin borrar su historial';
+      actions.append(archive);
     }
 
-    names.forEach(category => {
-      const details = document.createElement('details');
-      details.className = 'product-group';
+    if (associated.length === 0) {
+      actions.append(adminActionButton('Eliminar proveedor vacío', async () => {
+        if (!confirm(`¿Eliminar definitivamente «${category.name}»?`)) return;
+        try {
+          await apiFetch(`/api/categories/${category.id}`, { method: 'DELETE' });
+          await refreshCatalog();
+        } catch (error) { alert(error.message); }
+      }, true));
+    }
 
-      const heading = document.createElement('summary');
-      heading.className = 'category-summary';
-      heading.textContent =
-        `${category} (${groups[category].length} productos)`;
-
-      details.append(heading);
-
-      if (!groups[category].length) {
-        const empty = document.createElement('p');
-        empty.className = 'muted';
-        empty.textContent =
-          'Todavía no hay productos en este proveedor.';
-
-        details.append(empty);
-      }
-
-      groups[category].forEach(product => {
-        const row = document.createElement('div');
-        row.className = 'product-row';
-
-        const info = document.createElement('span');
-        info.innerHTML =
-          `<strong>${escapeHtml(product.name)}</strong>`;
-
-        const remove = document.createElement('button');
-        remove.className = 'remove';
-        remove.type = 'button';
-        remove.textContent = 'Quitar';
-
-        remove.addEventListener('click', async () => {
-          if (!confirm(`¿Quitar ${product.name} del catálogo?`)) {
-            return;
-          }
-
-          try {
-            await apiFetch('/api/products/' + product.id, {
-              method: 'DELETE'
-            });
-
-            await loadProducts();
-            await loadCategories();
-
-          } catch (error) {
-            alert(error.message || 'No se pudo quitar el producto.');
-          }
-        });
-
-        row.append(info, remove);
-        details.append(row);
-      });
-
-      productsEl.append(details);
-    });
-
-  } catch (error) {
-    console.error('Error cargando productos:', error);
-
-    productsEl.innerHTML =
-      '<div class="empty">No se pudieron cargar los productos.</div>';
-  }
+    card.append(actions);
+    const note = document.createElement('p');
+    note.className = 'muted';
+    note.style.fontSize = '12px';
+    note.textContent = activeCount > 0
+      ? 'Para archivar este proveedor, primero mové o desactivá sus artículos activos en Productos.'
+      : 'Si conserva productos desactivados, se archiva en lugar de eliminarse para preservar sus datos.';
+    card.append(note);
+    categoriesList.append(card);
+  });
 }
 
-// -------------------- CREAR PROVEEDOR --------------------
+function ensureProductTools() {
+  if (!productsEl || document.querySelector('#admin-product-tools')) return;
+
+  const controls = document.createElement('div');
+  controls.id = 'admin-product-tools';
+  controls.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:16px 0;';
+
+  const input = document.createElement('input');
+  input.type = 'search';
+  input.placeholder = 'Buscar artículo o proveedor';
+  input.setAttribute('aria-label', 'Buscar artículos');
+  input.style.cssText = 'flex:1;min-width:180px;max-width:400px;';
+  input.value = productSearchText;
+  input.addEventListener('input', () => {
+    productSearchText = input.value;
+    renderProducts();
+  });
+
+  const label = document.createElement('label');
+  label.style.cssText = 'display:flex;align-items:center;gap:7px;';
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.checked = showInactiveProducts;
+  toggle.addEventListener('change', () => {
+    showInactiveProducts = toggle.checked;
+    renderProducts();
+  });
+  label.append(toggle, document.createTextNode('Mostrar desactivados'));
+
+  controls.append(input, label);
+  productsEl.before(controls);
+}
+
+function openProductEditor(product) {
+  const activeProviders = lastCategories.filter(c => Number(c.active) === 1);
+  if (!activeProviders.length) {
+    alert('No hay proveedores activos para asignar el artículo.');
+    return;
+  }
+
+  const dialog = document.createElement('dialog');
+  dialog.style.cssText =
+    'border:1px solid #ddd;border-radius:12px;padding:20px;' +
+    'width:min(90vw,440px);box-sizing:border-box;';
+
+  const title = document.createElement('h3');
+  title.textContent = `Editar producto #${product.id}`;
+  title.style.marginTop = '0';
+
+  const nameLabel = document.createElement('label');
+  nameLabel.textContent = 'Nombre del artículo';
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.required = true;
+  nameInput.maxLength = 100;
+  nameInput.value = product.name;
+  nameInput.style.cssText = 'display:block;width:100%;box-sizing:border-box;margin:6px 0 14px;';
+  nameLabel.append(nameInput);
+
+  const providerLabel = document.createElement('label');
+  providerLabel.textContent = 'Proveedor';
+  const select = document.createElement('select');
+  select.required = true;
+  select.style.cssText = 'display:block;width:100%;box-sizing:border-box;margin:6px 0 14px;';
+  activeProviders.forEach(provider => {
+    select.append(optionFor(provider.name, provider.name));
+  });
+  select.value = product.category;
+  if (!select.value) select.selectedIndex = 0;
+  providerLabel.append(select);
+
+  const notice = document.createElement('p');
+  notice.className = 'muted';
+  notice.textContent = 'Los pedidos antiguos conservarán el nombre registrado originalmente.';
+
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'primary';
+  save.textContent = 'Guardar cambios';
+
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'secondary';
+  cancel.textContent = 'Cancelar';
+  cancel.style.marginLeft = '8px';
+  cancel.addEventListener('click', () => dialog.close());
+
+  save.addEventListener('click', async () => {
+    const name = nameInput.value.trim();
+    const category = select.value;
+    if (!name || !category) return alert('Completá nombre y proveedor.');
+    save.disabled = true;
+    try {
+      await apiFetch(`/api/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, category })
+      });
+      dialog.close();
+      await refreshCatalog();
+      if (productMsg) {
+        productMsg.textContent = 'Artículo actualizado correctamente.';
+        productMsg.className = 'success';
+      }
+    } catch (error) {
+      alert(error.message || 'No se pudo actualizar el artículo.');
+    } finally {
+      save.disabled = false;
+    }
+  });
+
+  dialog.addEventListener('close', () => dialog.remove());
+  dialog.append(title, nameLabel, providerLabel, notice, save, cancel);
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+function renderProducts() {
+  if (!productsEl) return;
+  ensureProductTools();
+
+  // Conservar desplegables abiertos al refrescar o editar productos.
+  productsEl.querySelectorAll('details[data-provider]').forEach(detail => {
+    if (detail.open) productOpenGroups.add(detail.dataset.provider);
+    else productOpenGroups.delete(detail.dataset.provider);
+  });
+  productsEl.replaceChildren();
+
+  const query = productSearchText.trim().toLocaleLowerCase('es');
+  const activeCount = lastProducts.filter(p => Number(p.active) === 1).length;
+  const inactiveCount = lastProducts.length - activeCount;
+  const count = document.createElement('p');
+  count.className = 'muted';
+  count.textContent = `${activeCount} artículos activos · ${inactiveCount} desactivados`;
+  productsEl.append(count);
+
+  const chosen = lastProducts.filter(p => {
+    if (!showInactiveProducts && Number(p.active) !== 1) return false;
+    const text = `${p.category} ${p.name}`.toLocaleLowerCase('es');
+    return !query || text.includes(query);
+  });
+
+  if (!chosen.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'No hay artículos con estos filtros.';
+    productsEl.append(empty);
+    return;
+  }
+
+  const groups = new Map();
+  chosen.forEach(product => {
+    if (!groups.has(product.category)) groups.set(product.category, []);
+    groups.get(product.category).push(product);
+  });
+
+  [...groups].sort((a, b) => a[0].localeCompare(b[0], 'es')).forEach(([provider, items]) => {
+    const detail = document.createElement('details');
+    detail.className = 'product-group';
+    detail.dataset.provider = provider;
+    detail.open = query.length > 0 || productOpenGroups.has(provider);
+
+    const summary = document.createElement('summary');
+    summary.className = 'category-summary';
+    summary.textContent = `${provider} (${items.length} artículos mostrados)`;
+    detail.append(summary);
+
+    items.forEach(product => {
+      const row = document.createElement('div');
+      row.className = 'product-row';
+      row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #eee;';
+
+      const info = document.createElement('span');
+      info.textContent = product.name + (Number(product.active) !== 1 ? ' [DESACTIVADO]' : '');
+      row.append(info);
+
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;';
+      actions.append(adminActionButton('Editar', () => openProductEditor(product)));
+
+      if (Number(product.active) === 1) {
+        actions.append(adminActionButton('Eliminar del catálogo', async () => {
+          if (!confirm(`¿Desactivar «${product.name}»?\n` +
+                       'Dejará de aparecer en los nuevos pedidos; los pedidos anteriores se conservan.')) return;
+          try {
+            await apiFetch(`/api/products/${product.id}`, { method: 'DELETE' });
+            await refreshCatalog();
+          } catch (error) { alert(error.message); }
+        }, true));
+      } else {
+        actions.append(adminActionButton('Reactivar producto', async () => {
+          try {
+            await apiFetch(`/api/products/${product.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ active: true })
+            });
+            await refreshCatalog();
+          } catch (error) { alert(error.message); }
+        }));
+      }
+
+      row.append(actions);
+      detail.append(row);
+    });
+
+    detail.addEventListener('toggle', () => {
+      if (detail.open) productOpenGroups.add(provider);
+      else productOpenGroups.delete(provider);
+    });
+    productsEl.append(detail);
+  });
+}
+
+// -------------------- CREAR CATEGORÍA --------------------
 
 if (categoryForm) {
   categoryForm.addEventListener('submit', async event => {
@@ -667,9 +775,7 @@ if (categoryForm) {
       'button[type="submit"], input[type="submit"]'
     );
 
-    if (submitButton) {
-      submitButton.disabled = true;
-    }
+    if (submitButton) submitButton.disabled = true;
 
     if (categoryMsg) {
       categoryMsg.textContent = 'Creando proveedor...';
@@ -707,9 +813,7 @@ if (categoryForm) {
       console.error('Error al crear proveedor:', error);
 
     } finally {
-      if (submitButton) {
-        submitButton.disabled = false;
-      }
+      if (submitButton) submitButton.disabled = false;
     }
   });
 }
@@ -734,7 +838,8 @@ if (productForm) {
 
     if (!body.category || !body.name) {
       if (productMsg) {
-        productMsg.textContent = 'Completá proveedor y producto.';
+        productMsg.textContent =
+          'Completá proveedor y producto.';
         productMsg.className = 'error';
       }
       return;
@@ -744,9 +849,7 @@ if (productForm) {
       'button[type="submit"], input[type="submit"]'
     );
 
-    if (submitButton) {
-      submitButton.disabled = true;
-    }
+    if (submitButton) submitButton.disabled = true;
 
     try {
       await apiFetch('/api/products', {
@@ -777,9 +880,7 @@ if (productForm) {
       console.error('Error agregando producto:', error);
 
     } finally {
-      if (submitButton) {
-        submitButton.disabled = false;
-      }
+      if (submitButton) submitButton.disabled = false;
     }
   });
 }
@@ -792,8 +893,7 @@ if (refreshButton) {
   refreshButton.addEventListener('click', async () => {
     await Promise.all([
       loadOrders(),
-      loadProducts(),
-      loadCategories()
+      loadProducts()
     ]);
   });
 }
@@ -802,7 +902,6 @@ if (refreshButton) {
 
 loadOrders();
 loadProducts();
-loadCategories();
 
 setInterval(loadOrders, 3000);
-setInterval(loadProducts, 10000);
+// No refrescar la edición cada 10 segundos: evita perder cambios en los controles.
