@@ -111,6 +111,13 @@ def protect_admin():
             path.startswith("/api/categories/")
             and method == "DELETE"
         )
+        
+or (
+    path.startswith("/api/orders/")
+    and path.endswith("/pdf")
+    and method == "GET"
+)
+
     )
 
     if not protected:
@@ -518,6 +525,64 @@ def get_orders():
 
     return jsonify(result)
 
+
+@app.get("/api/orders/<int:oid>/pdf")
+def descargar_pdf_pedido(oid):
+
+    with db() as c:
+        order = c.execute(
+            """
+            SELECT id, customer, notes, order_date
+            FROM orders
+            WHERE id = ?
+            """,
+            (oid,)
+        ).fetchone()
+
+        if not order:
+            return jsonify(
+                error="Pedido no encontrado."
+            ), 404
+
+        rows = c.execute(
+            """
+            SELECT product_id, name, price, quantity
+            FROM order_items
+            WHERE order_id = ?
+            ORDER BY id
+            """,
+            (oid,)
+        ).fetchall()
+
+    if not rows:
+        return jsonify(
+            error="El pedido no tiene productos."
+        ), 404
+
+    items = [
+        (
+            row["product_id"],
+            row["name"],
+            row["price"],
+            row["quantity"]
+        )
+        for row in rows
+    ]
+
+    pdf = generar_pdf_pedido(
+        order["id"],
+        order["customer"],
+        order["notes"],
+        items,
+        order["order_date"] or "No indicada"
+    )
+
+    return send_file(
+        pdf,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"pedido_{oid}.pdf"
+    )
 
 @app.patch("/api/orders/<int:oid>")
 def update_order(oid):
