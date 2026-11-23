@@ -73,177 +73,173 @@ function render() {
     groups[category].push(product);
   });
 
-  Object.entries(groups).forEach(
-    ([category, groupProducts], index) => {
+  Object.entries(groups).forEach(([category, groupProducts]) => {
+    const section = document.createElement('details');
 
-      const section = document.createElement('details');
+    section.className = 'category';
+    section.dataset.category = category;
 
-      section.className = 'category';
-      section.dataset.category = category;
+    // Todos empiezan cerrados.
+    // Conservar abiertos los que el usuario despliegue.
+    section.open = alreadyRendered && openCategories.has(category);
 
-      // La mejora 3 queda pendiente.
-      section.open = alreadyRendered
-        ? openCategories.has(category)
-        : index === 0;
+    const summary = document.createElement('summary');
 
-      const summary = document.createElement('summary');
+    summary.textContent = category;
+    summary.style.cursor = 'pointer';
+    summary.style.fontWeight = '700';
+    summary.style.padding = '12px 0';
 
-      summary.textContent = category;
-      summary.style.cursor = 'pointer';
-      summary.style.fontWeight = '700';
-      summary.style.padding = '12px 0';
+    section.appendChild(summary);
 
-      section.appendChild(summary);
+    groupProducts.forEach(product => {
+      const id = product.id;
+      const quantity = quantities[id] || 0;
 
-      groupProducts.forEach(product => {
-        const id = product.id;
-        const quantity = quantities[id] || 0;
+      const row = document.createElement('div');
+      row.className = 'product';
 
-        const row = document.createElement('div');
-        row.className = 'product';
+      const info = document.createElement('div');
 
-        const info = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 'product-name';
+      name.textContent = product.name;
 
-        const name = document.createElement('div');
-        name.className = 'product-name';
-        name.textContent = product.name;
+      info.append(name);
 
-        info.append(name);
+      const controls = document.createElement('div');
+      controls.className = 'qty';
 
-        const controls = document.createElement('div');
-        controls.className = 'qty';
+      // BOTÓN RESTAR
+      const removeButton = document.createElement('button');
 
-        // BOTÓN RESTAR
-        const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.textContent = '−';
+      removeButton.disabled = sending || quantity === 0;
 
-        removeButton.type = 'button';
-        removeButton.textContent = '−';
-        removeButton.disabled = sending || quantity === 0;
+      removeButton.setAttribute(
+        'aria-label',
+        `Restar ${product.name}`
+      );
 
-        removeButton.setAttribute(
-          'aria-label',
-          `Restar ${product.name}`
-        );
+      // CAMPO PARA ESCRIBIR LA CANTIDAD
+      const quantityInput = document.createElement('input');
 
-        // CAMPO PARA ESCRIBIR LA CANTIDAD
-        const quantityInput = document.createElement('input');
+      quantityInput.type = 'number';
+      quantityInput.className = 'qty-input';
 
-        quantityInput.type = 'number';
-        quantityInput.className = 'qty-input';
+      quantityInput.min = '0';
+      quantityInput.max = '250';
+      quantityInput.step = '1';
+      quantityInput.inputMode = 'numeric';
 
-        quantityInput.min = '0';
-        quantityInput.max = '99';
-        quantityInput.step = '1';
-        quantityInput.inputMode = 'numeric';
+      quantityInput.value = String(quantity);
+      quantityInput.disabled = sending;
 
-        quantityInput.value = String(quantity);
-        quantityInput.disabled = sending;
+      quantityInput.setAttribute(
+        'aria-label',
+        `Cantidad de ${product.name}`
+      );
 
-        quantityInput.setAttribute(
-          'aria-label',
-          `Cantidad de ${product.name}`
-        );
+      quantityInput.style.cssText =
+        'width:64px;min-width:0;text-align:center;' +
+        'padding:6px 3px;box-sizing:border-box;';
 
-        quantityInput.style.cssText =
-          'width:64px;min-width:0;text-align:center;' +
-          'padding:6px 3px;box-sizing:border-box;';
+      // BOTÓN SUMAR
+      const addButton = document.createElement('button');
 
-        // BOTÓN SUMAR
-        const addButton = document.createElement('button');
+      addButton.type = 'button';
+      addButton.textContent = '+';
+      addButton.disabled = sending || quantity >= 99;
 
-        addButton.type = 'button';
-        addButton.textContent = '+';
-        addButton.disabled = sending || quantity >= 99;
+      addButton.setAttribute(
+        'aria-label',
+        `Sumar ${product.name}`
+      );
 
-        addButton.setAttribute(
-          'aria-label',
-          `Sumar ${product.name}`
-        );
+      // ACTUALIZAR BOTONES
+      function updateButtons(value) {
+        removeButton.disabled = sending || value === 0;
+        addButton.disabled = sending || value >= 99;
+      }
 
-        // ACTUALIZAR BOTONES
-        function updateButtons(value) {
-          removeButton.disabled = sending || value === 0;
-          addButton.disabled = sending || value >= 99;
+      // ESCRIBIR CANTIDAD SIN CERRAR EL PROVEEDOR
+      quantityInput.addEventListener('input', () => {
+        if (sending) return;
+
+        const typed = quantityInput.value;
+
+        if (typed === '') {
+          quantities[id] = 0;
+          updateButtons(0);
+          return;
         }
 
-        // ESCRIBIR CANTIDAD SIN CERRAR EL PROVEEDOR
-        quantityInput.addEventListener('input', () => {
-          if (sending) return;
+        if (!/^\d+$/.test(typed)) {
+          return;
+        }
 
-          const typed = quantityInput.value;
+        const value = Math.min(99, Number(typed));
 
-          if (typed === '') {
-            quantities[id] = 0;
-            updateButtons(0);
-            return;
-          }
+        quantities[id] = value;
 
-          if (!/^\d+$/.test(typed)) {
-            return;
-          }
+        if (Number(typed) > 99) {
+          quantityInput.value = '99';
+        }
 
-          const value = Math.min(99, Number(typed));
-
-          quantities[id] = value;
-
-          if (Number(typed) > 99) {
-            quantityInput.value = '99';
-          }
-
-          updateButtons(value);
-        });
-
-        // NORMALIZAR CUANDO TERMINA DE ESCRIBIR
-        quantityInput.addEventListener('change', () => {
-          const value = quantities[id] || 0;
-
-          quantityInput.value = String(value);
-          updateButtons(value);
-        });
-
-        // EVITAR VALORES NO VÁLIDOS
-        quantityInput.addEventListener('keydown', event => {
-          if (
-            ['e', 'E', '+', '-', '.', ','].includes(event.key)
-          ) {
-            event.preventDefault();
-          }
-
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            quantityInput.blur();
-          }
-        });
-
-        // RESTAR
-        removeButton.addEventListener('click', () => {
-          setQty(
-            id,
-            (quantities[id] || 0) - 1
-          );
-        });
-
-        // SUMAR
-        addButton.addEventListener('click', () => {
-          setQty(
-            id,
-            (quantities[id] || 0) + 1
-          );
-        });
-
-        controls.append(
-          removeButton,
-          quantityInput,
-          addButton
-        );
-
-        row.append(info, controls);
-        section.appendChild(row);
+        updateButtons(value);
       });
 
-      catalog.appendChild(section);
-    }
-  );
+      // NORMALIZAR CUANDO TERMINA DE ESCRIBIR
+      quantityInput.addEventListener('change', () => {
+        const value = quantities[id] || 0;
+
+        quantityInput.value = String(value);
+        updateButtons(value);
+      });
+
+      // EVITAR VALORES NO VÁLIDOS
+      quantityInput.addEventListener('keydown', event => {
+        if (
+          ['e', 'E', '+', '-', '.', ','].includes(event.key)
+        ) {
+          event.preventDefault();
+        }
+
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          quantityInput.blur();
+        }
+      });
+
+      // RESTAR
+      removeButton.addEventListener('click', () => {
+        setQty(
+          id,
+          (quantities[id] || 0) - 1
+        );
+      });
+
+      // SUMAR
+      addButton.addEventListener('click', () => {
+        setQty(
+          id,
+          (quantities[id] || 0) + 1
+        );
+      });
+
+      controls.append(
+        removeButton,
+        quantityInput,
+        addButton
+      );
+
+      row.append(info, controls);
+      section.appendChild(row);
+    });
+
+    catalog.appendChild(section);
+  });
 }
 
 // -------------------- CAMBIAR CANTIDAD --------------------
