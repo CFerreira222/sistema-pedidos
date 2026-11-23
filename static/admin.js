@@ -9,11 +9,6 @@ const categoryMsg = document.querySelector('#category-message');
 const categoriesList = document.querySelector('#categories-list');
 const productForm = document.querySelector('#productForm');
 
-const fmt = n =>
-  '$ ' + Number(n || 0).toLocaleString('es-UY', {
-    maximumFractionDigits: 2
-  });
-
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({
     '&': '&amp;',
@@ -108,7 +103,8 @@ async function loadOrders() {
           ${escapeHtml(order.customer)}
         </div>
         <div class="order-time">
-          ${escapeHtml(order.created_at)}
+          Fecha solicitada: ${escapeHtml(order.order_date || 'No indicada')}<br>
+          Registrado: ${escapeHtml(order.created_at)}
         </div>
       `;
 
@@ -116,11 +112,9 @@ async function loadOrders() {
       statusSelect.className = 'status';
 
       const statuses = [
+        'Pedido',
         'Recibido',
-        'En preparación',
-        'Listo',
-        'Entregado',
-        'Cancelado'
+        'Sin stock'
       ];
 
       statuses.forEach(status => {
@@ -165,11 +159,7 @@ async function loadOrders() {
         quantity.textContent =
           `${item.quantity} × ${item.name}`;
 
-        const subtotal = document.createElement('span');
-        subtotal.textContent =
-          fmt(Number(item.price) * Number(item.quantity));
-
-        li.append(quantity, subtotal);
+        li.append(quantity);
         list.append(li);
       });
 
@@ -190,10 +180,7 @@ async function loadOrders() {
       count.textContent =
         `${(order.items || []).length} línea(s) de productos`;
 
-      const total = document.createElement('strong');
-      total.textContent = 'Total: ' + fmt(order.total);
-
-      bottom.append(count, total);
+      bottom.append(count);
       card.append(bottom);
 
       ordersEl.append(card);
@@ -545,18 +532,16 @@ if (productForm) {
     }
 
     const nameInput = document.querySelector('#productName');
-    
 
     const body = {
       category: categorySelect?.value || '',
-      name: nameInput?.value.trim() || '',
-      price: priceInput?.value || ''
+      name: nameInput?.value.trim() || ''
     };
 
-    if (!body.category || !body.name || body.price === '') {
+    if (!body.category || !body.name) {
       if (productMsg) {
         productMsg.textContent =
-          'Completá proveedor, producto y precio.';
+          'Completá proveedor y producto.';
         productMsg.className = 'error';
       }
       return;
