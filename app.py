@@ -102,6 +102,7 @@ def protect_admin():
     protected = (
         path == "/admin"
         or (path == "/api/products/import" and method == "POST")
+        or (path == "/api/products/manage" and method == "GET")
         or (path.startswith("/api/orders/") and path.endswith("/pdf") and method == "GET")
         or (path == "/api/orders" and method == "GET")
         or (path.startswith("/api/orders/") and method == "PATCH")
@@ -116,7 +117,7 @@ def protect_admin():
         )
         or (
             path.startswith("/api/categories/")
-            and method == "DELETE"
+            and method in ("PATCH", "DELETE")
         )
     )
 
@@ -208,6 +209,10 @@ def init_db():
             c.execute(
                 "ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_date TEXT"
             )
+            # Archivar proveedores sin borrarlos ni perder sus productos.
+            c.execute(
+                "ALTER TABLE categories ADD COLUMN IF NOT EXISTS active INTEGER NOT NULL DEFAULT 1"
+            )
 
         else:
             c.execute("""
@@ -253,6 +258,9 @@ def init_db():
             order_columns = c.execute("PRAGMA table_info(orders)").fetchall()
             if not any(column["name"] == "order_date" for column in order_columns):
                 c.execute("ALTER TABLE orders ADD COLUMN order_date TEXT")
+            category_columns = c.execute("PRAGMA table_info(categories)").fetchall()
+            if not any(column["name"] == "active" for column in category_columns):
+                c.execute("ALTER TABLE categories ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
 
         count = c.execute(
             "SELECT COUNT(*) AS n FROM products"
@@ -344,81 +352,106 @@ def admin():
 
 @app.get("/api/categories")
 def get_categories():
+    # Sólo Administración puede ver esta ruta (Basic Auth).
+    include_inactive = request.args.get("include_inactive") == "1"
     with db() as c:
-        rows = c.execute(
-            "SELECT id, name FROM categories ORDER BY name"
-        ).fetchall()
-
-    return jsonify([dict(r) for r in rows])
+        if include_inactive:
+            rows = c.execute(
+                "SELECT id, name, active FROM categories ORDER BY name"
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT id, name, active FROM categories WHERE active = 1 ORDER BY name"
+            ).fetchall()
+    return jsonify([dict(row) for row in rows])
 
 
 @app.post("/api/categories")
 def add_category():
     data = request.get_json(silent=True) or {}
-    name = str(data.get("name", "")).strip()[:60]
+    name = str(data.get("name") or "").strip()
+    if not name or len(name) > 60:
+        return jsonify(error="Ingresá un proveedor de hasta 60 caracteres."), 400
+    with db() as c:
+        existing = c.execute(
+            "SELECT id FROM categories WHERE lower(name) = lower(?)", (name,)
+        ).fetchone()
+        if existing:
+            return jsonify(error="Ya existe un proveedor con ese nombre."), 409
+        row = c.execute(
+            "INSERT INTO categories(name) VALUES(?) RETURNING id", (name,)
+        ).fetchone()
+    return jsonify(ok=True, id=row["id"], name=name)
 
-    if not name:
-        return jsonify(
-            error="Ingresá el nombre del proveedor."
-        ), 400
 
-    try:
-        with db() as c:
-            cur = c.execute(
-                "INSERT INTO categories(name) VALUES(?) RETURNING id",
-                (name,)
+@app.patch("/api/categories/<int:category_id>")
+def edit_category(category_id):
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict) or not any(k in data for k in ("name", "active")):
+        return jsonify(error="No se recibieron cambios de proveedor."), 400
+
+    with db() as c:
+        existing = c.execute(
+            "SELECT id, name, active FROM categories WHERE id = ?", (category_id,)
+        ).fetchone()
+        if not existing:
+            return jsonify(error="Proveedor no encontrado."), 404
+
+        new_name = existing["name"]
+        if "name" in data:
+            new_name = str(data["name"] or "").strip()
+            if not new_name or len(new_name) > 60:
+                return jsonify(error="El nombre del proveedor debe tener entre 1 y 60 caracteres."), 400
+            duplicate = c.execute(
+                "SELECT id FROM categories WHERE lower(name) = lower(?) AND id != ?",
+                (new_name, category_id)
+            ).fetchone()
+            if duplicate:
+                return jsonify(error="Ya existe otro proveedor con ese nombre."), 409
+
+        new_active = existing["active"]
+        if "active" in data:
+            if type(data["active"]) is not bool:
+                return jsonify(error="Estado del proveedor no válido."), 400
+            new_active = 1 if data["active"] else 0
+            if new_active == 0:
+                active_products = c.execute(
+                    "SELECT COUNT(*) AS n FROM products WHERE category = ? AND active = 1",
+                    (existing["name"],)
+                ).fetchone()["n"]
+                if active_products:
+                    return jsonify(error="Primero desactivá o mové los productos activos de este proveedor."), 409
+
+        # Nombre y vínculo de los productos se actualizan en la misma transacción.
+        if new_name != existing["name"]:
+            c.execute(
+                "UPDATE products SET category = ? WHERE category = ?",
+                (new_name, existing["name"])
             )
-
-            category_id = cur.fetchone()["id"]
-
-        return jsonify(
-            ok=True,
-            id=category_id,
-            name=name
+        c.execute(
+            "UPDATE categories SET name = ?, active = ? WHERE id = ?",
+            (new_name, new_active, category_id)
         )
-
-    except Exception:
-        return jsonify(
-            error="Ese proveedor ya existe o no se pudo guardar."
-        ), 409
+    return jsonify(ok=True, name=new_name, active=new_active)
 
 
 @app.delete("/api/categories/<int:category_id>")
 def delete_category(category_id):
+    # Eliminación física sólo de proveedores que nunca tuvieron artículos.
     with db() as c:
-        category = c.execute(
-            "SELECT id, name FROM categories WHERE id = ?",
-            (category_id,)
+        provider = c.execute(
+            "SELECT id, name FROM categories WHERE id = ?", (category_id,)
         ).fetchone()
-
-        if not category:
-            return jsonify(
-                error="Categoría no encontrada."
-            ), 404
-
-        count = c.execute(
+        if not provider:
+            return jsonify(error="Proveedor no encontrado."), 404
+        linked = c.execute(
             "SELECT COUNT(*) AS n FROM products WHERE category = ?",
-            (category["name"],)
+            (provider["name"],)
         ).fetchone()["n"]
-
-        if count > 0:
-            return jsonify(
-                error=(
-                    "No se puede eliminar porque tiene productos asociados. "
-                    "Quitá o reasigná esos productos primero."
-                )
-            ), 409
-
-        c.execute(
-            "DELETE FROM categories WHERE id = ?",
-            (category_id,)
-        )
-
-    return jsonify(
-        ok=True,
-        message="Categoría eliminada con éxito."
-    )
-
+        if linked:
+            return jsonify(error="Este proveedor conserva artículos activos o históricos. Usá Archivar proveedor cuando no tenga artículos activos."), 409
+        c.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+    return jsonify(ok=True, message="Proveedor vacío eliminado.")
 
 
 # -------------------- IMPORTACIÓN DE EXCEL --------------------
@@ -573,7 +606,7 @@ def import_products_excel():
         return jsonify(error=str(error)), 400
 
     with db() as c:
-        existing_providers = c.execute("SELECT name FROM categories").fetchall()
+        existing_providers = c.execute("SELECT name FROM categories WHERE active = 1").fetchall()
         providers = {p["name"].casefold(): p["name"] for p in existing_providers}
         known_products = c.execute("SELECT category, name FROM products").fetchall()
         known = {(p["category"].casefold(), p["name"].casefold()) for p in known_products}
@@ -617,6 +650,17 @@ def import_products_excel():
         duplicates=duplicates,
         examples=[{"provider": provider, "name": name} for provider, name, _ in to_add[:12]]
     )
+
+
+@app.get("/api/products/manage")
+def products_for_admin():
+    # Incluye desactivados para que se puedan recuperar; no devuelve precios.
+    with db() as c:
+        rows = c.execute("""
+            SELECT id, category, name, active
+            FROM products ORDER BY category, name, id
+        """).fetchall()
+    return jsonify([dict(row) for row in rows])
 
 
 @app.get("/api/products")
@@ -788,51 +832,96 @@ def update_order(oid):
     return jsonify(ok=True)
 
 
+def find_active_provider(c, name):
+    return c.execute(
+        "SELECT id, name FROM categories WHERE lower(name) = lower(?) AND active = 1",
+        (name,)
+    ).fetchone()
+
+
+def duplicate_product(c, provider, name, exclude_id=None):
+    if exclude_id is None:
+        return c.execute("""
+            SELECT id FROM products
+            WHERE lower(category) = lower(?) AND lower(name) = lower(?) AND active = 1
+            LIMIT 1
+        """, (provider, name)).fetchone()
+    return c.execute("""
+        SELECT id FROM products
+        WHERE lower(category) = lower(?) AND lower(name) = lower(?)
+          AND active = 1 AND id != ? LIMIT 1
+    """, (provider, name, exclude_id)).fetchone()
+
+
 @app.post("/api/products")
 def add_product():
     data = request.get_json(silent=True) or {}
-    category = str(data.get("category", "")).strip()[:60]
-    name = str(data.get("name", "")).strip()[:100]
-
-    if not category or not name:
-        return jsonify(error="Completá el proveedor y el nombre del producto."), 400
+    category = str(data.get("category") or "").strip()
+    name = str(data.get("name") or "").strip()
+    if not category or not name or len(name) > 100 or len(category) > 60:
+        return jsonify(error="Completá proveedor y nombre (máximo 100 caracteres)."), 400
 
     with db() as c:
-        provider = c.execute(
-            "SELECT id FROM categories WHERE name = ?", (category,)
-        ).fetchone()
-
+        provider = find_active_provider(c, category)
         if not provider:
-            return jsonify(error="Elegí un proveedor existente."), 400
-
-        # price se mantiene en 0 por compatibilidad con la base anterior.
-        cur = c.execute("""
-            INSERT INTO products(category, name, price)
-            VALUES(?,?,?)
-            RETURNING id
-        """, (category, name, 0))
-        product_id = cur.fetchone()["id"]
-
+            return jsonify(error="Elegí un proveedor activo existente."), 400
+        if duplicate_product(c, provider["name"], name):
+            return jsonify(error="Ese producto ya existe activo en ese proveedor."), 409
+        product_id = c.execute("""
+            INSERT INTO products(category, name, price) VALUES(?,?,?) RETURNING id
+        """, (provider["name"], name, 0)).fetchone()["id"]
     return jsonify(ok=True, id=product_id)
+
+
+@app.patch("/api/products/<int:pid>")
+def edit_product(pid):
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict) or not any(k in data for k in ("name", "category", "active")):
+        return jsonify(error="No se recibieron cambios de producto."), 400
+
+    with db() as c:
+        product = c.execute(
+            "SELECT id, name, category, active FROM products WHERE id = ?", (pid,)
+        ).fetchone()
+        if not product:
+            return jsonify(error="Producto no encontrado."), 404
+
+        name = str(data["name"] or "").strip() if "name" in data else product["name"]
+        category = str(data["category"] or "").strip() if "category" in data else product["category"]
+        if not name or not category or len(name) > 100 or len(category) > 60:
+            return jsonify(error="Nombre o proveedor no válido."), 400
+
+        active = int(product["active"])
+        if "active" in data:
+            if type(data["active"]) is not bool:
+                return jsonify(error="Estado del producto no válido."), 400
+            active = 1 if data["active"] else 0
+
+        provider = find_active_provider(c, category)
+        if not provider and (active == 1 or "category" in data):
+            return jsonify(error="Para activar o mover el producto elegí un proveedor activo."), 409
+        if provider:
+            category = provider["name"]
+
+        if active and duplicate_product(c, category, name, pid):
+            return jsonify(error="Ya existe un producto activo con ese nombre en el proveedor."), 409
+
+        c.execute(
+            "UPDATE products SET name = ?, category = ?, active = ? WHERE id = ?",
+            (name, category, active, pid)
+        )
+    return jsonify(ok=True, id=pid, name=name, category=category, active=active)
 
 
 @app.delete("/api/products/<int:pid>")
 def delete_product(pid):
+    # Nunca borramos físicamente; se conserva la fila y los pedidos anteriores.
     with db() as c:
         cur = c.execute(
-            """
-            UPDATE products
-            SET active = 0
-            WHERE id = ? AND active = 1
-            """,
-            (pid,)
+            "UPDATE products SET active = 0 WHERE id = ? AND active = 1", (pid,)
         )
-
         if cur.rowcount == 0:
-            return jsonify(
-                error="Producto no encontrado."
-            ), 404
-
+            return jsonify(error="Producto no encontrado o ya desactivado."), 404
     return jsonify(ok=True)
 
 
