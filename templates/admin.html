@@ -47,6 +47,19 @@
       flex-wrap: wrap;
       gap: 10px;
     }
+    .receipt-tools, .receipt-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin: 12px 0;
+    }
+    .receipt-tools label { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; }
+    .receipt-tools input[type="checkbox"] { width: auto; }
+    #receipt-dialog { max-width: min(28rem, 88vw); border-radius: 10px; }
+    .order-items li.receipt-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .receipt-line .line-info { flex: 1 1 16rem; }
+    .receipt-line small { display: block; }
     #excel-status {
       white-space: pre-line;
     }
@@ -81,6 +94,25 @@
         <button class="secondary" id="refresh" type="button">Actualizar ahora</button>
       </div>
       <p class="muted">Los pedidos se actualizan automáticamente cada 3 segundos.</p>
+      <div class="receipt-tools">
+        <label><input type="checkbox" id="pending-only"> Solo pendientes</label>
+        <label for="pending-provider">Proveedor
+          <select id="pending-provider" disabled><option value="*">Todos</option></select>
+        </label>
+      </div>
+      <p id="receipt-message" role="status"></p>
+      <dialog id="receipt-dialog" aria-labelledby="receipt-title">
+        <form id="receipt-form">
+          <h3 id="receipt-title">Registrar recepción</h3>
+          <p id="receipt-description"></p>
+          <label for="receipt-quantity">Total recibido hasta hoy</label>
+          <input id="receipt-quantity" type="number" min="0" step="1" required>
+          <div class="receipt-actions">
+            <button type="submit" class="primary">Guardar recepción</button>
+            <button id="receipt-cancel" type="button" class="secondary">Cancelar</button>
+          </div>
+        </form>
+      </dialog>
       <div id="orders" class="orders"></div>
     </section>
 
@@ -164,7 +196,7 @@
       });
     });
   </script>
-  <script src="/static/admin.js"></script>
+  <script src="/static/admin.js?v=recepcion-parcial-1"></script>
   <script src="/static/excel_import.js"></script>
 </body>
 </html>
