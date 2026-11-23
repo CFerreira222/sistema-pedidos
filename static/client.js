@@ -140,7 +140,105 @@ function setQty(id, quantity) {
 }
 
 
-orderForm.addEventListener('submit', async event => {
+
+orderForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  if (sending) return;
+
+  const customer =
+    document.querySelector('#customer')?.value.trim() || '';
+
+  const orderDate =
+    document.querySelector('#orderDate')?.value || '';
+
+  const notes =
+    document.querySelector('#notes')?.value.trim() || '';
+
+  const items = Object.entries(quantities)
+    .map(([id, quantity]) => ({
+      product_id: Number(id),
+      quantity: Number(quantity)
+    }))
+    .filter(item => item.quantity > 0);
+
+  if (!customer || !orderDate || !items.length) {
+    msg.textContent =
+      'Completá solicitante, fecha y al menos un producto.';
+    msg.className = 'error';
+    return;
+  }
+
+  const submitButton =
+    orderForm.querySelector('button[type="submit"]');
+
+  sending = true;
+
+  if (submitButton) submitButton.disabled = true;
+
+  msg.textContent = 'Enviando pedido...';
+  msg.className = '';
+
+  try {
+    const response = await fetch('/api/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        customer,
+        order_date: orderDate,
+        notes,
+        items
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(
+        error.error || 'No se pudo enviar el pedido.'
+      );
+    }
+
+    const orderId = response.headers.get('X-Order-ID');
+    const pdf = await response.blob();
+
+    const descargar = window.confirm(
+      `Pedido #${orderId || ''} enviado correctamente.\n\n` +
+      '¿Deseás descargar el PDF?'
+    );
+
+    if (descargar) {
+      const url = URL.createObjectURL(pdf);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `pedido_${orderId || 'nuevo'}.pdf`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        window.location.assign('/');
+      }, 1000);
+
+    } else {
+      window.location.assign('/');
+    }
+
+  } catch (error) {
+    msg.textContent =
+      error.message || 'Error al enviar el pedido.';
+
+    msg.className = 'error';
+    sending = false;
+
+    if (submitButton) submitButton.disabled = false;
+  }
+});
+ async event => {
   event.preventDefault();
 
   if (sending) return;
